@@ -13,7 +13,10 @@
         <header class="title-row"><div><h1>Focus</h1><p class="sub" id="sub"></p></div>
           <div class="actions"><a class="btn" href="#/settings">${O.icon('settings', 14)}Timer settings</a></div></header>
         <div class="grid">
-          <section class="panel s7 focus-main" aria-label="Focus timer" id="main"></section>
+          <div class="s7" style="display:flex;flex-direction:column;gap:16px;min-width:0">
+            <section class="panel focus-main" aria-label="Focus timer" id="main"></section>
+            <section class="panel" aria-labelledby="sndh"><div class="panel-head"><h2 id="sndh">Focus sounds</h2><span class="meta" id="sndmeta"></span></div><div id="snd"></div></section>
+          </div>
           <div class="s5" style="display:flex;flex-direction:column;gap:16px;min-width:0">
             <section class="panel" aria-labelledby="sh"><div class="panel-head"><h2 id="sh">Today’s sessions</h2><span class="count-chip" id="scount"></span><div class="end"><span class="meta num" id="stotal"></span></div></div><div class="sess-list" id="sessions"></div></section>
             <section class="panel" style="flex:1" aria-labelledby="bh"><div class="panel-head"><h2 id="bh">Minutes focused, last 14 days</h2></div><div class="chart" id="bars"></div><p class="finding" id="bfind"></p></section>
@@ -64,7 +67,17 @@
         const bestI = vals.indexOf(Math.max(...vals));
         $('bfind').innerHTML = last || prev ? `Last 7 days: <b>${U.dur(last)}</b>, ${last === prev ? 'the same as' : U.dur(Math.abs(last - prev)) + (last > prev ? ' more than' : ' less than')} the 7 days before. Best day: ${esc(U.relDayInline(days[bestI]))}, ${vals[bestI]} min.` : 'Today’s bar is the one in colour.';
       }
-      const all = () => { sub(); main(); sessions(); bars(); };
+      function sounds() {
+        const s = O.store.state.settings, on = O.ambient.playing();
+        $('sndmeta').textContent = on ? `playing: ${O.ambient.KINDS[on]}` : s.ambientAuto && s.ambient !== 'off' ? 'starts with each focus session' : '';
+        O.fill($('snd'), `
+          <div class="sound-grid" role="group" aria-label="Sound">${[['off', 'Off'], ...Object.entries(O.ambient.KINDS)].map(([k, v]) => `<button type="button" class="sound-btn" data-snd="${k}" data-k="snd-${k}" aria-pressed="${k === 'off' ? !on && s.ambient === 'off' : on === k || (!on && s.ambient === k)}">${k === 'off' ? '' : `<span class="eq ${on === k ? 'live' : ''}"><i></i><i></i><i></i></span>`}${v}</button>`).join('')}</div>
+          <div class="sound-row">
+            <label class="vol">${O.icon('sound', 16)}<span class="visually-hidden">Volume</span><input type="range" min="0" max="1" step="0.05" value="${s.ambientVol}" id="vol" aria-label="Volume"></label>
+            <label class="switch-row" style="align-items:center;gap:10px"><span><b>Play with the timer</b></span><input type="checkbox" class="switch" id="sauto" ${s.ambientAuto ? 'checked' : ''}></label>
+          </div>`);
+      }
+      const all = () => { sub(); main(); sessions(); bars(); sounds(); };
       all();
 
       root.addEventListener('click', (e) => {
@@ -76,7 +89,19 @@
         if (b.dataset.t === 'finish') t.finishEarly();
         if (b.dataset.t === 'reset') t.reset();
       });
-      root.addEventListener('change', (e) => { if (e.target.id === 'ftask') t.setTask(e.target.value); });
+      root.addEventListener('change', (e) => {
+        if (e.target.id === 'ftask') t.setTask(e.target.value);
+        if (e.target.id === 'sauto') O.store.update((s) => { s.settings.ambientAuto = e.target.checked; });
+      });
+      root.addEventListener('input', (e) => { if (e.target.id === 'vol') { O.store.update((s) => { s.settings.ambientVol = +e.target.value; }, { silent: true }); O.ambient.volume(); } });
+      root.addEventListener('click', (e) => {
+        const b = e.target.closest('[data-snd]'); if (!b) return;
+        const k = b.dataset.snd;
+        O.store.update((s) => { s.settings.ambient = k; }, { silent: true });
+        if (k === 'off') O.ambient.stop(); else O.ambient.play(k);
+        sounds();
+      });
+      const offSnd = O.ambient.on(() => sounds());
       const onKey = (e) => {
         if (e.code !== 'Space' || e.ctrlKey || e.metaKey || /^(INPUT|TEXTAREA|SELECT|BUTTON|A)$/.test(document.activeElement.tagName) || document.querySelector('dialog[open]')) return;
         e.preventDefault(); t.toggle();
@@ -89,7 +114,7 @@
         const el = $('time'); if (el) el.textContent = t.fmt(left);
         const p = $('prog'); if (p) p.setAttribute('stroke-dashoffset', (C * (1 - t.progress())).toFixed(2));
       });
-      return { refresh: all, tick: sub, destroy() { off(); document.removeEventListener('keydown', onKey); } };
+      return { refresh: all, tick: sub, destroy() { off(); offSnd(); document.removeEventListener('keydown', onKey); } };
     },
   };
 })();

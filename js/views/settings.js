@@ -6,8 +6,10 @@
 
   O.views.settings = {
     title: 'Settings',
-    mount(root) {
+    mount(root, params) {
       const S = () => O.store.state;
+      const goTo = params && params.query.get('section');
+      if (goTo) setTimeout(() => { const el = root.querySelector('#' + goTo); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); const i = el.querySelector('input'); if (i) i.focus({ preventScroll: true }); } }, 60);
       const sw = (key, title, desc) => `<label class="switch-row"><span><b>${title}</b><span>${desc}</span></span><input type="checkbox" class="switch" data-set="${key}" ${S().settings[key] ? 'checked' : ''}></label>`;
       const hourOpts = (from, to, sel) => Array.from({ length: to - from + 1 }, (_, i) => from + i).map((h) => `<option value="${h}" ${h === sel ? 'selected' : ''}>${String(h % 24).padStart(2, '0')}:00${h === 24 ? ' (midnight)' : ''}</option>`).join('');
 
@@ -22,8 +24,23 @@
           <section class="set-row"><div class="set-label"><h2>Profile</h2><p>Used in the greeting on Today.</p></div>
             <div class="set-panel"><div class="field"><label for="sname">Your name</label><input id="sname" class="input" data-k="name" value="${esc(s.profile.name)}" placeholder="Your first name" maxlength="40" autocomplete="given-name"></div></div></section>
 
-          <section class="set-row"><div class="set-label"><h2>Appearance</h2><p>System follows your device’s light or dark setting.</p></div>
-            <div class="set-panel"><div class="field"><span class="label" id="thl">Theme</span><div class="seg" role="group" aria-labelledby="thl">${[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']].map(([k, v]) => `<button type="button" data-k="th-${k}" data-theme-set="${k}" aria-pressed="${st.theme === k}">${v}</button>`).join('')}</div></div></div></section>
+          <section class="set-row"><div class="set-label"><h2>Appearance</h2><p>Make Orbit yours. Changes show at once.</p>
+              <div class="look-preview" aria-hidden="true">
+                <div class="lp-top"><span class="lp-h">Good evening.</span>${O.fx.ring(0.68, { size: 54, stroke: 5 })}</div>
+                <div class="lp-row"><span class="check" aria-checked="true" role="presentation">${O.icon('check')}</span><span>Read 20 minutes</span><span class="pill acc">12 days</span></div>
+                <div class="lp-bar"><i></i></div>
+                <span class="btn sm primary">Start focus</span>
+              </div></div>
+            <div class="set-panel">
+              <div class="field"><span class="label" id="thl">Theme</span><div class="seg" role="group" aria-labelledby="thl">${[['system', 'System'], ['light', 'Light'], ['dark', 'Dark']].map(([k, v]) => `<button type="button" data-k="th-${k}" data-theme-set="${k}" aria-pressed="${st.theme === k}">${v}</button>`).join('')}</div></div>
+              <div class="field"><span class="label" id="acl">Accent colour</span><div class="swatches" role="radiogroup" aria-labelledby="acl">${Object.entries(O.ACCENTS).map(([k, a]) => `<button type="button" role="radio" class="swatch" data-k="ac-${k}" data-accent="${k}" aria-checked="${(st.accent || 'teal') === k}" aria-label="${a.name}" title="${a.name}" style="--sw:${a.c[document.documentElement.dataset.theme === 'dark' ? 1 : 0]}"><span></span></button>`).join('')}</div></div>
+              <div class="row2">
+                <div class="field"><span class="label" id="hdl">Headings</span><div class="seg" role="group" aria-labelledby="hdl">${[['serif', 'Editorial'], ['sans', 'Modern']].map(([k, v]) => `<button type="button" data-k="hd-${k}" data-head="${k}" aria-pressed="${(st.headings || 'serif') === k}" class="${k === 'serif' ? 'serif-btn' : ''}">${v}</button>`).join('')}</div></div>
+                <div class="field"><span class="label" id="mol">Motion</span><div class="seg" role="group" aria-labelledby="mol">${[['full', 'Full'], ['reduced', 'Reduced']].map(([k, v]) => `<button type="button" data-k="mo-${k}" data-motion-set="${k}" aria-pressed="${(st.motion || 'full') === k}">${v}</button>`).join('')}</div></div>
+              </div>
+              ${sw('celebrate', 'Celebrations', 'Confetti for level-ups, badges, finished goals and a full set of habits.')}
+              <div class="field"><label for="dxp">Daily XP goal</label><select id="dxp" class="input" data-num="dailyXp" style="max-width:240px">${[60, 90, 120, 150, 200, 300].map((n) => `<option value="${n}" ${n === (st.dailyXp || 120) ? 'selected' : ''}>${n} XP a day${n === 120 ? ' (default)' : ''}</option>`).join('')}</select><span class="hint">The ring on Today fills toward it. About five tasks and a focus session.</span></div>
+            </div></section>
 
           <section class="set-row"><div class="set-label"><h2>Focus timer</h2><p>Currently ${st.focusMin} minutes of focus, then ${st.shortMin} minutes off; every ${st.longEvery}th break lasts ${st.longMin} minutes.</p>
               <span class="hint" style="display:block;margin:20px 0 8px">What you’ll see when a session ends</span>
@@ -52,6 +69,23 @@
               <div class="field"><label for="d2">Day ends</label><select id="d2" class="input" data-num="dayEnd">${hourOpts(14, 24, st.dayEnd)}</select></div>
               <div class="field"><label for="d3">Weeks start on</label><select id="d3" class="input" data-num="weekStart"><option value="1" ${st.weekStart === 1 ? 'selected' : ''}>Monday</option><option value="0" ${st.weekStart === 0 ? 'selected' : ''}>Sunday</option></select></div>
             </div></div></section>
+
+          <section class="set-row" id="weather"><div class="set-label"><h2>Weather</h2><p>Shown on Today. Only the city’s coordinates are sent, to Open-Meteo, a free weather service.</p></div>
+            <div class="set-panel">
+              ${st.location ? `<div class="loc-now">${O.icon('pin2', 16)}<b>${esc(st.location.name)}</b><span class="muted">${esc(st.location.region || '')}</span><button type="button" class="btn sm ghost" data-loc-clear>Remove</button></div>` : ''}
+              <div class="field"><label for="wq">${st.location ? 'Change city' : 'Your city'}</label><input id="wq" class="input" placeholder="Start typing, e.g. Delhi" autocomplete="off"></div>
+              <div class="loc-results" id="wres"></div>
+              <div><button type="button" class="btn sm" data-loc-here>${O.icon('pin2', 14)}Use my current location</button></div>
+            </div></section>
+
+          <section class="set-row"><div class="set-label"><h2>Money</h2><p>The currency used everywhere amounts are shown. Budgets are set per category.</p></div>
+            <div class="set-panel">
+              <div class="row2">
+                <div class="field"><label for="cur">Currency</label><select id="cur" class="input">${['INR', 'USD', 'EUR', 'GBP', 'JPY', 'CAD', 'AUD', 'SGD', 'AED', 'PKR', 'BDT', 'NPR', 'LKR'].map((c) => `<option value="${c}" ${c === O.money.currency() ? 'selected' : ''}>${c} · ${new Intl.NumberFormat(undefined, { style: 'currency', currency: c }).formatToParts(0).find((p) => p.type === 'currency').value}</option>`).join('')}</select></div>
+                <div class="field"><span class="label">Budgets</span><div><button type="button" class="btn" data-budgets>Edit monthly budgets</button></div></div>
+              </div>
+              <p class="hint">${s.money.tx.length} entries, ${s.money.subs.length} subscriptions. ${O.money.totalBudget() ? `Total budget ${esc(O.money.fmt(O.money.totalBudget()))} a month.` : 'No budget set yet.'}</p>
+            </div></section>
 
           <section class="set-row"><div class="set-label"><h2>Task lists</h2><p>Deleting a list moves its tasks to ${esc(s.lists[0] ? s.lists[0].name : 'the first list')}.</p></div>
             <div class="set-panel">
@@ -83,7 +117,17 @@
       const saveName = U.debounce((v) => { setS((s) => { s.profile.name = v.trim(); }); }, 400);
       const saveList = U.debounce((id, v) => { if (v.trim()) setS((s) => { s.lists.find((l) => l.id === id).name = v.trim(); }); }, 400);
 
+      const findCity = U.debounce(async (q) => {
+        const box = root.querySelector('#wres'); if (!box) return;
+        if (q.trim().length < 2) { box.innerHTML = ''; return; }
+        box.innerHTML = '<span class="hint">Searching…</span>';
+        try {
+          const rs = await O.weather.search(q.trim());
+          box.innerHTML = rs.length ? rs.map((r) => `<button type="button" class="loc-opt" data-loc='${esc(JSON.stringify(r))}'>${O.icon('pin2', 14)}<b>${esc(r.name)}</b><span>${esc(r.region)}</span></button>`).join('') : '<span class="hint">No places found by that name.</span>';
+        } catch (_) { box.innerHTML = '<span class="hint">Couldn’t search right now. Check your connection.</span>'; }
+      }, 350);
       root.addEventListener('input', (e) => {
+        if (e.target.id === 'wq') findCity(e.target.value);
         if (e.target.dataset.k === 'name') saveName(e.target.value);
         if (e.target.dataset.listName) saveList(e.target.dataset.listName, e.target.value);
       });
@@ -92,7 +136,7 @@
         const t = e.target;
         if (t.dataset.set) { setS((s) => { s.settings[t.dataset.set] = t.checked; }); return; }
         if (t.dataset.num) {
-          const key = t.dataset.num, lim = { focusMin: [1, 180], shortMin: [1, 60], longMin: [1, 90], longEvery: [2, 6], dayStart: [0, 12], dayEnd: [14, 24], weekStart: [0, 1] }[key];
+          const key = t.dataset.num, lim = { focusMin: [1, 180], shortMin: [1, 60], longMin: [1, 90], longEvery: [2, 6], dayStart: [0, 12], dayEnd: [14, 24], weekStart: [0, 1], dailyXp: [30, 1000] }[key];
           const v = U.clamp(parseInt(t.value, 10) || lim[0], lim[0], lim[1]);
           setS((s) => { s.settings[key] = v; if (O.timer.status() === 'idle') { s.timer.left = null; } });
           O.timer.emit();
@@ -108,10 +152,26 @@
           return;
         }
         if (t.dataset.import !== undefined && t.files && t.files[0]) { await O.importData(t.files[0]); t.value = ''; }
+        if (t.id === 'cur') { setS((s) => { s.settings.currency = t.value; }); }
       });
       root.addEventListener('click', async (e) => {
         const th = e.target.closest('[data-theme-set]');
-        if (th) { setS((s) => { s.settings.theme = th.dataset.themeSet; }); O.applyTheme(); return; }
+        if (th) { setS((s) => { s.settings.theme = th.dataset.themeSet; }); O.applyTheme(); draw(); return; }
+        const ac = e.target.closest('[data-accent]');
+        if (ac) { setS((s) => { s.settings.accent = ac.dataset.accent; }); O.applyTheme(); return; }
+        const hd = e.target.closest('[data-head]');
+        if (hd) { setS((s) => { s.settings.headings = hd.dataset.head; }); O.applyTheme(); return; }
+        const mo = e.target.closest('[data-motion-set]');
+        if (mo) { setS((s) => { s.settings.motion = mo.dataset.motionSet; }); O.applyTheme(); return; }
+        if (e.target.closest('[data-budgets]')) { O.budgetDialog(); return; }
+        const lc = e.target.closest('[data-loc]');
+        if (lc) { const r = JSON.parse(lc.dataset.loc); setS((s) => { s.settings.location = r; }); O.toast(`Weather set to ${r.name}.`); O.weather.get({ force: true }); return; }
+        if (e.target.closest('[data-loc-clear]')) { setS((s) => { s.settings.location = null; }); return; }
+        if (e.target.closest('[data-loc-here]')) {
+          if (!navigator.geolocation) { O.toast('This browser can’t share your location.'); return; }
+          navigator.geolocation.getCurrentPosition((p) => { setS((s) => { s.settings.location = { name: 'My location', region: '', lat: +p.coords.latitude.toFixed(2), lon: +p.coords.longitude.toFixed(2) }; }); O.weather.get({ force: true }); O.toast('Weather set to your location.'); }, () => O.toast('Location was not shared. Search for your city instead.'), { timeout: 10000 });
+          return;
+        }
         if (e.target.closest('[data-export]')) { O.exportData(); draw(); return; }
         if (e.target.closest('[data-install]') && O.installPrompt) { O.installPrompt.prompt(); const r = await O.installPrompt.userChoice; O.installPrompt = null; if (r.outcome !== 'accepted') O.toast('You can install Orbit any time from here.'); draw(); return; }
         if (e.target.closest('[data-sample-on]')) { O.loadSample(); O.toast('Sample data loaded. Remove it here any time.'); return; }

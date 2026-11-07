@@ -91,6 +91,7 @@
     const nav = [
       ['Today', '#/today', 'today'], ['Tasks', '#/tasks', 'tasks'], ['Habits', '#/habits', 'habits'], ['Focus', '#/focus', 'focus'],
       ['Planner', '#/planner', 'planner'], ['Notes', '#/notes', 'notes'], ['Journal', '#/journal', 'journal'], ['Stats', '#/stats', 'stats'], ['Settings', '#/settings', 'settings'],
+      ['Calendar', '#/calendar', 'calendar'], ['Goals', '#/goals', 'goals'], ['Money', '#/money', 'money'], ['Progress', '#/progress', 'progress'],
     ].map(([n, h, i]) => ({ group: 'Go to', label: n, icon: i, run: () => O.go(h) }));
     const actions = [
       { label: 'New task', icon: 'plus', run: () => O.newTask() },
@@ -102,6 +103,11 @@
       { label: 'Switch light or dark theme', icon: 'moon', run: () => O.toggleTheme() },
       { label: 'Export a backup', icon: 'download', run: () => O.exportData() },
       { label: 'Keyboard shortcuts', icon: 'keyboard', run: () => O.showShortcuts() },
+      { label: 'New goal', icon: 'goals', run: () => O.go('#/goals/new') },
+      { label: 'New countdown', icon: 'hourglass', run: () => { O.go('#/calendar'); setTimeout(() => O.countdownDialog(), 50); } },
+      { label: 'Add a subscription', icon: 'money', run: () => { O.go('#/money'); setTimeout(() => O.subDialog(), 50); } },
+      { label: 'Play focus sounds', icon: 'sound', run: () => { const k = O.store.state.settings.ambient; O.ambient.playing() ? O.ambient.stop() : O.ambient.play(k && k !== 'off' ? k : 'rain'); } },
+      { label: 'See level and achievements', icon: 'progress', run: () => O.go('#/progress') },
     ].map((a) => ({ group: 'Actions', ...a }));
     const tasks = st.tasks.filter((x) => !x.done).map((x) => ({ group: 'Tasks', label: x.title, hint: x.due ? U.relDay(x.due) : D.listName(x.list), icon: 'tasks', run: () => O.go('#/tasks/' + x.id) }));
     const notes = st.notes.map((n) => ({ group: 'Notes', label: n.title || 'Untitled note', hint: U.short(U.keyOf(n.updatedAt)), icon: 'notes', run: () => O.go('#/notes/' + n.id) }));
@@ -109,8 +115,12 @@
     let all = [...actions, ...nav, ...tasks, ...habits, ...notes];
     if (!q) return [...actions.slice(0, 5), ...nav].slice(0, 14);
     all = all.map((it) => ({ it, s: score(q, it.label) + (it.group === 'Actions' || it.group === 'Go to' ? 2 : 0) })).filter((x) => x.s > 0).sort((a, b) => b.s - a.s).slice(0, 12).map((x) => x.it);
+    const goals = O.store.state.goals.map((g) => ({ group: 'Goals', label: g.title, hint: g.done ? 'Achieved' : Math.round(O.goals.progress(g).ratio * 100) + '%', icon: 'goals', run: () => O.go('#/goals/' + g.id) }));
+    all = all.concat(goals.map((it) => ({ it, s: score(q, it.label) })).filter((x) => x.s > 0).slice(0, 3).map((x) => x.it));
     const p = D.parseQuick(q);
     const chips = D.quickChips(p);
+    const mp = O.money.parse(q);
+    if (/^\s*[+\-₹$€£]?\s*\d/.test(q) && mp.amount) all.unshift({ group: 'Add', label: `Log ${mp.type === 'income' ? 'income' : 'spending'}: ${O.money.fmt(mp.amount)}${mp.type === 'expense' ? ' on ' + O.money.catName(mp.category) : ''}`, hint: mp.note, icon: 'money', run: () => O.quickMoney(q) });
     all.push({ group: 'Add', label: `Add task “${p.title || q}”`, hint: chips.join(' · '), icon: 'plus', run: () => O.quickAddTask(q) });
     return all;
   }
@@ -149,7 +159,8 @@
   const SHORTCUTS = [
     ['Ctrl K', 'Search and run any command'], ['/', 'Search'], ['N', 'New task'], ['Space', 'Start or pause the timer (on Focus)'],
     ['G then T', 'Go to Today'], ['G then K', 'Go to Tasks'], ['G then H', 'Go to Habits'], ['G then F', 'Go to Focus'],
-    ['G then P', 'Go to Planner'], ['G then N', 'Go to Notes'], ['G then J', 'Go to Journal'], ['G then S', 'Go to Stats'], ['?', 'Show this list'],
+    ['G then P', 'Go to Planner'], ['G then N', 'Go to Notes'], ['G then J', 'Go to Journal'], ['G then S', 'Go to Stats'],
+    ['G then C', 'Go to Calendar'], ['G then G', 'Go to Goals'], ['G then M', 'Go to Money'], ['G then L', 'Go to Progress (level)'], ['?', 'Show this list'],
   ];
   O.showShortcuts = () => O.dialog({
     title: 'Keyboard shortcuts', cls: 'small',
@@ -163,7 +174,7 @@
     const k = e.key.toLowerCase();
     if (gPending && Date.now() - gPending < 1200) {
       gPending = 0;
-      const map = { t: 'today', k: 'tasks', h: 'habits', f: 'focus', p: 'planner', n: 'notes', j: 'journal', s: 'stats' };
+      const map = { t: 'today', k: 'tasks', h: 'habits', f: 'focus', p: 'planner', n: 'notes', j: 'journal', s: 'stats', c: 'calendar', g: 'goals', m: 'money', l: 'progress' };
       if (map[k]) { e.preventDefault(); O.go('#/' + map[k]); }
       return;
     }
@@ -211,10 +222,25 @@
     O.store.update((s) => { s.settings.theme = dark ? 'light' : 'dark'; });
     O.applyTheme();
   };
+  /* accents: [light, dark], each readable as text on its own ground */
+  O.ACCENTS = {
+    teal: { name: 'Teal', c: ['#1b6e66', '#3fb3a5'] },
+    ocean: { name: 'Ocean', c: ['#1d5fbf', '#6ea8ff'] },
+    forest: { name: 'Forest', c: ['#2f7d3a', '#62c46f'] },
+    amber: { name: 'Amber', c: ['#a85208', '#f2a33a'] },
+    rose: { name: 'Rose', c: ['#b8195a', '#f36fa7'] },
+    graphite: { name: 'Graphite', c: ['#3a3b3f', '#d6d6da'] },
+  };
   O.applyTheme = () => {
-    const t = O.store.state.settings.theme;
+    const st = O.store.state.settings, t = st.theme;
     const dark = t === 'dark' || (t === 'system' && matchMedia('(prefers-color-scheme: dark)').matches);
-    document.documentElement.dataset.theme = dark ? 'dark' : 'light';
+    const root = document.documentElement;
+    root.dataset.theme = dark ? 'dark' : 'light';
+    const a = (O.ACCENTS[st.accent] || O.ACCENTS.teal).c[dark ? 1 : 0];
+    root.style.setProperty('--accent', a);
+    root.dataset.headings = st.headings === 'sans' ? 'sans' : 'serif';
+    root.dataset.motion = st.motion === 'reduced' ? 'reduced' : 'full';
+    try { localStorage.setItem('orbit.accent', a); } catch (_) {}
     const meta = document.querySelector('meta[name="theme-color"]:not([media])') || (() => { const m = document.createElement('meta'); m.name = 'theme-color'; document.head.appendChild(m); return m; })();
     meta.content = dark ? '#000000' : '#f6f6f3';
   };

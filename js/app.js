@@ -5,20 +5,14 @@
   const esc = U.esc;
   const $ = (id) => document.getElementById(id);
 
-  const NAV = [
-    { id: 'today', label: 'Today', icon: 'today' },
-    { id: 'tasks', label: 'Tasks', icon: 'tasks' },
-    { id: 'habits', label: 'Habits', icon: 'habits' },
-    { id: 'focus', label: 'Focus', icon: 'focus' },
-    { id: 'planner', label: 'Planner', icon: 'planner' },
-    { id: 'notes', label: 'Notes', icon: 'notes' },
-  ];
-  const NAV2 = [
-    { id: 'journal', label: 'Journal', icon: 'journal' },
-    { id: 'stats', label: 'Stats', icon: 'stats' },
-  ];
-  const TABS = ['today', 'tasks', 'habits', 'focus'];
-  const ALL = [...NAV, ...NAV2, { id: 'settings', label: 'Settings', icon: 'settings' }];
+  const GROUPS = [
+    ['', [['today', 'Today'], ['tasks', 'Tasks'], ['calendar', 'Calendar'], ['planner', 'Planner']]],
+    ['Grow', [['habits', 'Habits'], ['goals', 'Goals'], ['focus', 'Focus']]],
+    ['Life', [['money', 'Money'], ['notes', 'Notes'], ['journal', 'Journal']]],
+    ['Insights', [['stats', 'Stats'], ['progress', 'Progress']]],
+  ].map(([g, items]) => [g, items.map(([id, label]) => ({ id, label, icon: id === 'calendar' ? 'calendar' : id }))]);
+  const TABS = ['today', 'tasks', 'habits', 'calendar'];
+  const ALL = [...GROUPS.flatMap(([, xs]) => xs), { id: 'settings', label: 'Settings', icon: 'settings' }];
 
   /* a region that holds the caret is left alone, so a redraw never eats what you are typing */
   O.fill = (el, html) => {
@@ -34,14 +28,14 @@
   /* ------------------------------------------------------------------ shell */
   function shell() {
     $('brand').innerHTML = `${O.mark(24)}<b>Orbit</b>`;
-    const item = (n) => `<a class="nav-item" href="#/${n.id}" data-route="${n.id}">${O.icon(n.icon)}<span>${n.label}</span><span class="count" data-count="${n.id}"></span></a>`;
-    $('nav').innerHTML = NAV.map(item).join('');
-    $('nav2').innerHTML = NAV2.map(item).join('');
+    const item = (n) => `<a class="nav-item" href="#/${n.id}" data-route="${n.id}">${O.icon(n.icon)}<span>${n.label}</span><span class="count" data-navcount="${n.id}"></span></a>`;
+    $('navs').innerHTML = GROUPS.map(([g, xs]) => `${g ? `<div class="side-group">${g}</div>` : ''}<nav class="nav" aria-label="${g || 'Plan'}">${xs.map(item).join('')}</nav>`).join('');
     $('nav-settings').innerHTML = `${O.icon('settings')}<span>Settings</span>`;
     $('search-btn').innerHTML = `${O.icon('search')}<span class="lbl">Search or jump to…</span><kbd>Ctrl K</kbd>`;
     $('keys-btn').innerHTML = O.icon('keyboard', 18);
     $('tabbar').innerHTML = TABS.map((id) => { const n = ALL.find((x) => x.id === id); return `<a class="tab" href="#/${id}" data-route="${id}">${O.icon(n.icon, 22)}<span>${n.label}</span></a>`; }).join('') +
       `<button type="button" class="tab" id="more-btn" data-route="more">${O.icon('menu', 22)}<span>More</span></button>`;
+    O.timer.on(() => O.ambient.follow());
     $('search-btn').addEventListener('click', () => O.palette());
     $('keys-btn').addEventListener('click', () => O.showShortcuts());
     $('theme-btn').addEventListener('click', () => { O.toggleTheme(); shellState(); });
@@ -53,10 +47,12 @@
   function shellState() {
     const s = O.store.state, today = U.today();
     const open = D.openToday(today).length;
-    const c = document.querySelector('[data-count="tasks"]');
+    const c = document.querySelector('[data-navcount="tasks"]');
     if (c) { c.textContent = open || ''; c.setAttribute('aria-label', open ? `${open} due today` : ''); }
-    const name = s.profile.name.trim();
-    $('user-row').innerHTML = `<span class="avatar" aria-hidden="true">${esc((name || 'You')[0].toUpperCase())}</span><span class="who"><b>${esc(name || 'You')}</b><span>Saved on this device</span></span>`;
+    const name = s.profile.name.trim(), x = O.xp.compute();
+    $('user-row').href = '#/progress';
+    $('user-row').innerHTML = `<span class="avatar lvl-avatar" aria-hidden="true">${x.level}</span><span class="who"><b>${esc(name || 'You')}</b><span>Level ${x.level} · ${esc(x.title)}</span><span class="side-xp"><i style="width:${((x.into / x.need) * 100).toFixed(1)}%"></i></span></span>`;
+    $('user-row').setAttribute('aria-label', `${name || 'You'}, level ${x.level}, ${x.into} of ${x.need} XP to the next level`);
     $('theme-btn').innerHTML = O.icon(document.documentElement.dataset.theme === 'dark' ? 'sun' : 'moon', 18);
   }
   function timerChip() {
@@ -69,7 +65,7 @@
   function openMore() {
     const d = O.dialog({
       title: 'More', cls: 'small more-sheet',
-      body: `<nav class="nav">${[...NAV.filter((n) => !TABS.includes(n.id)), ...NAV2, ALL.at(-1)].map((n) => `<a class="nav-item" href="#/${n.id}">${O.icon(n.icon, 20)}<span>${n.label}</span></a>`).join('')}
+      body: `<nav class="nav more-nav">${ALL.filter((n) => !TABS.includes(n.id)).map((n) => `<a class="nav-item" href="#/${n.id}">${O.icon(n.icon, 20)}<span>${n.label}</span></a>`).join('')}
         <button type="button" class="nav-item" id="more-search" style="border:0;background:none;width:100%">${O.icon('search', 20)}<span>Search</span></button></nav>`,
     });
     d.body.addEventListener('click', (e) => {
@@ -97,6 +93,9 @@
     current = v.mount(root, params) || {};
     currentName = viewName;
     O.viewTitle = v.title || '';
+    // blocks rise in when a screen opens; the class comes off afterwards so redraws don't replay it
+    root.classList.remove('enter'); void root.offsetWidth;
+    if (!O.fx.calm() && !same) { root.classList.add('enter'); clearTimeout(O._enterT); O._enterT = setTimeout(() => root.classList.remove('enter'), 900); }
     O.timer.emit();
     U.$$('[data-route]').forEach((a) => a.setAttribute('aria-current', a.dataset.route === viewName ? 'page' : 'false'));
     const more = $('more-btn'); if (more) more.setAttribute('aria-current', !TABS.includes(viewName) && viewName !== 'welcome' ? 'page' : 'false');
@@ -108,6 +107,7 @@
   O.store.subscribe(() => {
     shellState();
     if (current && current.refresh) current.refresh();
+    O.celebrateCheck();
   });
 
   /* ------------------------------------------------------------- first run */
@@ -153,7 +153,8 @@
   const fired = new Set();
   function heartbeat() {
     const today = U.today();
-    if (today !== day) { day = today; O.route(); return; }
+    if (today !== day) { day = today; O.money.processSubs(); O.route(); return; }
+    if (Date.now() - (O.lastWeather || 0) > 30 * 60e3) { O.lastWeather = Date.now(); O.weather.get().then((w) => { if (w && currentName === 'today' && current.tick) current.tick(); }); }
     if (current && current.tick) current.tick();
     // reminders for timed tasks, while Orbit is open
     const s = O.store.state;
@@ -193,9 +194,11 @@
 
   /* ------------------------------------------------------------------ boot */
   O.applyTheme();
+  O.money.processSubs();
   // ?demo on a fresh browser opens straight into the sample data
   if (new URLSearchParams(location.search).has('demo') && !O.store.state.seen.onboarding) O.loadSample();
   O.timerBoot();
+  O.celebrateCheck(true);
   shell();
   O.route();
 })();

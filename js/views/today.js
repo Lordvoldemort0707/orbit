@@ -18,8 +18,9 @@
     if (showList && D.listName(t.list)) bits.push(esc(D.listName(t.list)));
     if (t.subtasks && t.subtasks.length) bits.push(`${t.subtasks.filter((x) => x.done).length}/${t.subtasks.length} steps`);
     if (t.repeat) bits.push(esc(D.REPEAT[t.repeat]));
+    if (t.goalId && O.goals && O.goals.get(t.goalId)) bits.push(`<span class="goal-tag">${O.icon('goals', 12)}${esc(O.goals.get(t.goalId).title)}</span>`);
     if (t.done && t.doneAt) bits.push('Done ' + (U.keyOf(t.doneAt) === today ? 'at ' + U.timeOf(t.doneAt) : U.relDayInline(U.keyOf(t.doneAt))));
-    const prio = !t.done && t.priority === 3 ? '<span class="pill warn">High</span>' : !t.done && t.priority === 2 ? '<span class="pill">Medium</span>' : '';
+    const prio = (!t.done && t.status === 'doing' ? '<span class="pill acc">Doing</span>' : '') + (!t.done && t.priority === 3 ? '<span class="pill warn">High</span>' : !t.done && t.priority === 2 ? '<span class="pill">Medium</span>' : '');
     return `<div class="rcard link ${t.done ? 'done' : ''}" data-task="${t.id}" aria-selected="${selected}">
       <button type="button" class="open-btn" data-act="open-task" data-id="${t.id}" aria-label="Open ${esc(t.title)}"></button>
       <button type="button" class="check" role="checkbox" aria-checked="${t.done}" data-act="toggle-task" data-id="${t.id}" aria-label="${t.done ? 'Mark not done' : 'Mark done'}: ${esc(t.title)}">${O.icon('check')}</button>
@@ -41,7 +42,7 @@
     const b = e.target.closest('[data-act]');
     if (!b) return false;
     const { act, id, day } = b.dataset;
-    if (act === 'toggle-task') { O.toggleTask(id); return true; }
+    if (act === 'toggle-task') { const was = D.task(id) && D.task(id).done; if (!was) O.fx.burst(b); O.toggleTask(id); return true; }
     if (act === 'open-task') { O.go('#/tasks/' + id); return true; }
     if (act === 'habit-toggle' || act === 'habit-inc' || act === 'habit-dec') {
       const h = D.habit(id); if (!h) return true;
@@ -50,7 +51,7 @@
         if (act === 'habit-toggle') D.toggleHabit(h, day);
         else D.setCount(h, day, D.countOn(h, day) + (act === 'habit-inc' ? 1 : -1));
       });
-      if (!before && D.hDone(h, day)) { O.sound('tick'); const s = D.streak(h); if (s >= 2 && day === U.today()) O.toast(`${h.name}: ${s}-day streak.`); }
+      if (!before && D.hDone(h, day)) { O.sound('tick'); O.fx.burst(b, 16); const s = D.streak(h); if (s >= 2 && day === U.today()) O.toast(`${h.name}: ${s}-day streak.`); }
       return true;
     }
     return false;
@@ -131,15 +132,22 @@
   };
 
   /* ------------------------------------------------------------------ view */
+  /* ------------------------------------------------------------------ view */
   O.views.today = {
     title: 'Today',
     mount(root) {
       root.innerHTML = `
-        <header class="greet"><div id="greet"></div><div class="actions"><button type="button" class="btn primary" data-act="new-task">${O.icon('plus')}New task</button></div></header>
+        <section class="hero" aria-label="Today at a glance">
+          <div class="hero-main">
+            <div id="greet"></div>
+            <div class="hero-chips" id="chips"></div>
+          </div>
+          <a class="hero-score" href="#/progress" id="score" aria-label="Today's XP and your level"></a>
+        </section>
         <div class="grid tiles" id="tiles"></div>
         <div class="grid">
           <section class="panel s9" aria-labelledby="dayh">
-            <div class="panel-head"><h2 id="dayh">Your day</h2><div class="end"><div class="strip-legend"><span><i class="plan"></i>Planned</span><span><i class="focus"></i>Focus</span><span><i class="task"></i>Task done</span></div><a class="card-link" href="#/planner">Planner${O.icon('right')}</a></div></div>
+            <div class="panel-head"><h2 id="dayh">Your day</h2><span class="meta" id="daymeta"></span><div class="end"><div class="strip-legend"><span><i class="plan"></i>Planned</span><span><i class="focus"></i>Focus</span><span><i class="task"></i>Task done</span></div><a class="card-link" href="#/planner">Planner${O.icon('right')}</a></div></div>
             <div class="daystrip" id="strip"></div>
           </section>
           <section class="panel s3 mini-timer" aria-labelledby="ftitle" id="mini"></section>
@@ -161,6 +169,18 @@
           </section>
         </div>
         <div class="grid">
+          <section class="panel s6" aria-labelledby="gh">
+            <div class="panel-head"><h2 id="gh">Goals</h2><span class="meta" id="gmeta"></span><div class="end"><a class="card-link" href="#/goals">All goals${O.icon('right')}</a></div></div>
+            <div class="goal-list" id="glist"></div>
+          </section>
+          <section class="panel s6" aria-labelledby="mh">
+            <div class="panel-head"><h2 id="mh">Money this month</h2><div class="end"><a class="card-link" href="#/money">Money${O.icon('right')}</a></div></div>
+            <div id="mtop"></div>
+            <form class="qa" id="mqa" autocomplete="off" style="margin-top:12px"><div class="qa-field" style="height:42px">${O.icon('money')}<input placeholder="Log spending: 120 coffee" aria-label="Log spending"></div><div class="qa-chips" aria-live="polite"></div></form>
+            <div class="tx-list compact" id="mlist"></div>
+          </section>
+        </div>
+        <div class="grid">
           <section class="panel s6" aria-labelledby="jh">
             <div class="panel-head"><h2 id="jh">How is today going?</h2><div class="end"><span class="saved-stamp" id="jstamp"></span><a class="card-link" href="#/journal">Journal${O.icon('right')}</a></div></div>
             <div class="moods" id="moods" role="group" aria-label="Mood today"></div>
@@ -174,28 +194,51 @@
         </div>`;
 
       const $ = (id) => root.querySelector('#' + id);
+      const M = O.money;
       const qa = $('qa'), qin = qa.querySelector('input'), chips = qa.querySelector('.qa-chips');
+      const mqa = $('mqa'), min = mqa.querySelector('input'), mchips = mqa.querySelector('.qa-chips');
+      let first = true;
 
       function greet() {
         const s = O.store.state, name = s.profile.name.trim();
         $('greet').innerHTML = `<h1>${U.greeting()}${name ? ', ' + esc(name) : ''}.</h1><p class="sub">${esc(U.fmtDate(U.today()))} · ${esc(D.todayFact())}</p>`;
+        // the chips: weather, the next countdown, the closest badge
+        const out = [];
+        const loc = s.settings.location, w = O.weather.cached();
+        if (loc && w) { const d = O.weather.describe(w.code); out.push(`<a class="chip" href="#/settings" title="${esc(loc.name)}">${O.icon(d.icon, 16)}<span>${esc(O.weather.line(w))}</span><span class="chip-sub">${esc(loc.name)}</span></a>`); }
+        else if (loc) out.push(`<span class="chip">${O.icon('w_cloud', 16)}<span>Getting the weather for ${esc(loc.name)}…</span></span>`);
+        else out.push(`<a class="chip ghost" href="#/settings?section=weather">${O.icon('w_partly', 16)}<span>Add your city for weather</span></a>`);
+        const cd = O.countdowns.upcoming()[0];
+        if (cd) { const n = O.countdowns.daysLeft(cd); out.push(`<a class="chip ${n <= 3 ? 'hot' : ''}" href="#/calendar?date=${cd.date}">${O.icon('hourglass', 16)}<span>${esc(cd.title)}</span><b class="num">${n === 0 ? 'today' : n === 1 ? 'tomorrow' : `in ${n} days`}</b></a>`); }
+        else out.push(`<a class="chip ghost" href="#/calendar">${O.icon('hourglass', 16)}<span>Add a countdown</span></a>`);
+        const streak = D.activeHabits().map((h) => ({ h, s: D.streak(h) })).sort((a, b) => b.s - a.s)[0];
+        if (streak && streak.s >= 3) out.push(`<a class="chip" href="#/habits/${streak.h.id}">${O.icon('flame', 16)}<span>${esc(streak.h.name)}</span><b class="num">${streak.s} days</b></a>`);
+        $('chips').innerHTML = out.join('');
+      }
+      function score() {
+        const x = O.xp.compute(), t = O.xp.today(), goal = O.store.state.settings.dailyXp || 120;
+        $('score').innerHTML = `
+          <div class="ring-box">${O.fx.ring(t / goal, { size: 104, stroke: 8 })}<div class="ring-in"><b class="num" data-count="${t}" data-key="today-xp">${t}</b><span>of ${goal} XP</span></div></div>
+          <div class="score-side">
+            <div class="lvl"><span class="lvl-n num">Level ${x.level}</span><span class="lvl-t">${esc(x.title)}</span></div>
+            <div class="xp-bar"><i data-grow="${((x.into / x.need) * 100).toFixed(1)}%" style="width:${((x.into / x.need) * 100).toFixed(1)}%"></i></div>
+            <div class="xp-line num">${(x.need - x.into).toLocaleString()} XP to level ${x.level + 1}</div>
+          </div>`;
       }
       function tiles() {
-        const today = U.today(), now = U.nowMins();
+        const today = U.today();
         const open = D.openToday(today), overdue = open.filter((t) => t.due < today).length, doneT = D.doneOn(today).length;
         const hs = D.activeHabits().filter((h) => D.isScheduled(h, today));
         const hd = hs.filter((h) => D.hDone(h, today));
         const left = hs.filter((h) => !D.hDone(h, today)).map((h) => h.name);
         const sess = D.sessionsOn(today), fm = D.focusOn(today);
-        const blocks = D.blocksOn(today);
-        const planned = blocks.reduce((acc, b) => acc + Math.max(0, b.end - Math.max(b.start, now)), 0);
-        const next = blocks.find((b) => b.start >= now) || blocks.find((b) => b.end > now);
-        const tile = (href, label, value, cap) => `<a class="panel tile s3" href="${href}"><span class="tile-label">${label}</span><span><div class="tile-value">${value}</div><div class="tile-cap">${cap}</div></span></a>`;
+        const mk = M.monthKey(), spent = M.spent(M.inMonth(mk)), spentToday = M.spent(O.store.state.money.tx.filter((t) => t.date === today)), bud = M.totalBudget();
+        const tile = (href, label, value, cap, icon) => `<a class="panel tile s3" href="${href}"><span class="tile-label">${O.icon(icon, 15)}${label}</span><span><div class="tile-value">${value}</div><div class="tile-cap">${cap}</div></span></a>`;
         $('tiles').innerHTML =
-          tile('#/tasks', 'Tasks left today', open.length, overdue ? `${overdue} overdue · ${doneT} done today` : doneT ? `${doneT} done today` : open.length ? 'Nothing done yet' : 'Nothing due today') +
-          tile('#/habits', 'Habits done', hs.length ? `${hd.length}<small> /${hs.length}</small>` : '0', !hs.length ? (D.activeHabits().length ? 'None scheduled today' : 'No habits yet') : left.length ? esc(U.andList(left.slice(0, 2)) + (left.length > 2 ? ` and ${left.length - 2} more` : '') + ' left') : 'All done today') +
-          tile('#/focus', 'Focused today', U.durHtml(fm), sess.length ? U.plural(sess.length, 'session') + ', last at ' + U.timeOf(sess.at(-1).end) : 'No sessions yet') +
-          tile('#/planner', 'Planned time left', U.durHtml(planned), next ? (next.start >= now ? `Next: ${esc(next.title)} at ${U.hm(next.start)}` : `Now: ${esc(next.title)} until ${U.hm(next.end)}`) : blocks.length ? 'Nothing else planned' : 'No plan for today');
+          tile('#/tasks', 'Tasks left today', `<span data-count="${open.length}" data-key="t-open">${open.length}</span>`, overdue ? `${overdue} overdue · ${doneT} done today` : doneT ? `${doneT} done today` : open.length ? 'Nothing done yet' : 'Nothing due today', 'tasks') +
+          tile('#/habits', 'Habits done', hs.length ? `<span data-count="${hd.length}" data-key="h-done">${hd.length}</span><small> /${hs.length}</small>` : '0', !hs.length ? (D.activeHabits().length ? 'None scheduled today' : 'No habits yet') : left.length ? esc(U.andList(left.slice(0, 2)) + (left.length > 2 ? ` and ${left.length - 2} more` : '') + ' left') : 'All done today', 'habits') +
+          tile('#/focus', 'Focused today', U.durHtml(fm), sess.length ? U.plural(sess.length, 'session') + ', last at ' + U.timeOf(sess.at(-1).end) : 'No sessions yet', 'focus') +
+          tile('#/money', 'Spent this month', esc(M.fmt(spent)), bud ? (spent <= bud ? `${esc(M.fmt(bud - spent))} left of ${esc(M.fmt(bud))}` : `<span class="neg-text">${esc(M.fmt(spent - bud))} over budget</span>`) : `${esc(M.fmt(spentToday))} today`, 'money');
       }
       function tasks() {
         const today = U.today();
@@ -214,14 +257,30 @@
         const rows = hs.slice(0, 5);
         $('hcount').textContent = `${hs.filter((h) => D.hDone(h, today)).length}/${hs.length}`;
         $('hcount').hidden = !hs.length;
-        $('hcount').setAttribute('aria-label', 'done today');
         $('hlist').innerHTML = rows.length ? rows.map((h) => {
           const s = D.streak(h), n = D.countOn(h, today);
           const sub = (h.target || 1) > 1 ? `${n} of ${h.target} ${esc(h.unit || 'times')}${s ? ` · ${s}-day streak` : ''}` : s ? `${s}-day streak` : D.hDone(h, today) ? 'Done today' : 'No streak yet';
-          return `<div class="rcard habit-row"><div class="main" style="pointer-events:auto"><a class="t" href="#/habits/${h.id}">${esc(h.name)}</a><span class="s">${sub}</span></div><div class="side">${O.habitCtl(h, today)}</div></div>`;
+          return `<div class="rcard habit-row ${D.hDone(h, today) ? 'is-done' : ''}"><div class="main" style="pointer-events:auto"><a class="t" href="#/habits/${h.id}">${esc(h.name)}</a><span class="s">${s >= 3 ? O.icon('flame', 12) + ' ' : ''}${sub}</span></div><div class="side">${O.habitCtl(h, today)}</div></div>`;
         }).join('') : `<div class="empty">${all.length ? 'No habits are scheduled for today.' : 'Track something small every day: reading, water, a walk.'}<a class="btn sm" href="#/habits/new">${O.icon('plus')}New habit</a></div>`;
         const off = all.length - hs.length;
         $('hfoot').innerHTML = `<span>${hs.length > rows.length ? `${hs.length - rows.length} more today` : off ? `${U.plural(off, 'habit')} not scheduled today` : ''}</span>`;
+      }
+      function goals() {
+        const act = O.goals.active().sort((a, b) => (a.due || '9999') < (b.due || '9999') ? -1 : 1).slice(0, 3);
+        $('gmeta').textContent = O.goals.active().length ? `${O.goals.active().length} in progress` : '';
+        $('glist').innerHTML = act.length ? act.map((g) => {
+          const p = O.goals.progress(g), next = (g.milestones || []).find((m) => !m.done);
+          return `<a class="goal-row" href="#/goals/${g.id}"><div class="goal-row-top"><b>${esc(g.title)}</b><span class="num">${Math.round(p.ratio * 100)}%</span></div><div class="bar"><i data-grow="${(p.ratio * 100).toFixed(1)}%" style="width:${(p.ratio * 100).toFixed(1)}%"></i></div><span class="s">${next ? 'Next: ' + esc(next.title) : `${p.done} of ${p.total} steps`}${g.due ? ` · ${esc(U.diffDays(g.due, U.today()) >= 0 ? U.diffDays(g.due, U.today()) + ' days left' : 'past its date')}` : ''}</span></a>`;
+        }).join('') : `<div class="empty">Big things, broken into steps. Your goals show up here with their progress.<a class="btn sm" href="#/goals/new">${O.icon('plus')}New goal</a></div>`;
+      }
+      function money() {
+        const s = O.store.state, mk = M.monthKey(), txs = M.inMonth(mk), spent = M.spent(txs), bud = M.totalBudget();
+        const days = new Date(+mk.slice(0, 4), +mk.slice(5), 0).getDate(), day = +U.today().slice(8);
+        const r = bud ? spent / bud : null;
+        $('mtop').innerHTML = bud ? `<div class="money-top"><div><span class="kpi-label">Spent</span><b class="num">${esc(M.fmt(spent))}</b></div><div><span class="kpi-label">Left</span><b class="num ${spent > bud ? 'neg-text' : ''}">${esc(M.fmt(bud - spent))}</b></div><div><span class="kpi-label">Days left</span><b class="num">${days - day + 1}</b></div></div><div class="bar ${r > 1 ? 'over' : r > day / days ? 'near' : ''}"><i data-grow="${Math.min(100, r * 100).toFixed(1)}%" style="width:${Math.min(100, r * 100).toFixed(1)}%"></i><span class="bar-mark" style="left:${((day / days) * 100).toFixed(1)}%" title="Where you'd be at an even pace"></span></div>`
+          : `<div class="money-top"><div><span class="kpi-label">Spent</span><b class="num">${esc(M.fmt(spent))}</b></div><div><span class="kpi-label">Entries</span><b class="num">${txs.length}</b></div><div><a class="card-link" href="#/money">Set a budget${O.icon('right')}</a></div></div>`;
+        const last = s.money.tx.slice().sort((a, b) => (a.date === b.date ? b.createdAt - a.createdAt : a.date < b.date ? 1 : -1)).slice(0, 3);
+        $('mlist').innerHTML = last.map((t) => `<a class="tx" href="#/money"><i class="cat-dot" data-cat="${t.category}"></i><span class="tx-main"><span class="t">${esc(t.note || M.catName(t.category))}</span><span class="s">${esc(M.catName(t.category))} · ${esc(U.relDay(t.date))}</span></span><span class="tx-amt num ${t.type === 'income' ? 'pos-text' : ''}">${t.type === 'income' ? '+' : ''}${esc(M.fmt(t.amount))}</span></a>`).join('');
       }
       function journal() {
         const e = O.store.state.journal[U.today()] || {};
@@ -236,10 +295,17 @@
           : `<div class="empty">Notes you pin show up here.<a class="btn sm" href="#/notes/new">${O.icon('plus')}New note</a></div>`;
         $('nmeta').textContent = ns.length ? `${U.plural(ns.length, 'note')}, ${ns.filter((n) => n.pinned).length} pinned` : '';
       }
-      function strip() { O.drawDayStrip($('strip')); }
+      function strip() {
+        O.drawDayStrip($('strip'));
+        const now = U.nowMins(), blocks = D.blocksOn(U.today());
+        const planned = blocks.reduce((acc, b) => acc + Math.max(0, b.end - Math.max(b.start, now)), 0);
+        const next = blocks.find((b) => b.start >= now) || blocks.find((b) => b.end > now);
+        $('daymeta').textContent = next ? (next.start >= now ? `${U.dur(planned)} planned ahead · next: ${next.title} at ${U.hm(next.start)}` : `now: ${next.title} until ${U.hm(next.end)}`) : blocks.length ? 'nothing else planned today' : 'nothing planned yet';
+      }
       function mini() {
         const t = O.timer, st = O.store.state.timer, task = st.taskId && D.task(st.taskId);
         const running = t.status() === 'running';
+        const snd = O.store.state.settings.ambient;
         $('mini').innerHTML = `
           <div class="panel-head"><h2 id="ftitle">${t.MODES[t.mode()]}</h2><div class="end"><a class="card-link" href="#/focus">Open${O.icon('right')}</a></div></div>
           <div class="timer-time num" id="mt-time">${t.fmt(t.left())}</div>
@@ -247,11 +313,12 @@
           <div class="bar"><i id="mt-bar" style="width:${(t.progress() * 100).toFixed(1)}%"></i></div>
           <div class="btns">
             <button type="button" class="btn sm primary" data-act="timer-toggle">${O.icon(running ? 'pause' : 'play', 14)}${running ? 'Pause' : t.status() === 'paused' ? 'Resume' : 'Start'}</button>
-            ${t.status() !== 'idle' ? `<button type="button" class="btn sm ghost" data-act="timer-reset">${O.icon('reset', 14)}Reset</button>` : ''}
+            ${t.status() !== 'idle' ? `<button type="button" class="btn sm ghost" data-act="timer-reset">${O.icon('reset', 14)}Reset</button>` : snd && snd !== 'off' ? `<span class="hint">${O.icon('sound', 12)} ${esc(O.ambient.KINDS[snd])}</span>` : ''}
           </div>`;
       }
-      const all = () => { greet(); tiles(); tasks(); habits(); journal(); notes(); strip(); mini(); };
+      const all = () => { greet(); score(); tiles(); tasks(); habits(); goals(); money(); journal(); notes(); strip(); mini(); O.fx.counts(root); O.fx.grow(root, first); first = false; };
       all();
+      O.weather.get().then((w) => { if (w && root.isConnected) greet(); });
 
       /* events */
       root.addEventListener('click', (e) => {
@@ -265,12 +332,13 @@
           return;
         }
         const act = b.dataset.act;
-        if (act === 'new-task') { qin.focus(); qin.scrollIntoView({ block: 'center', behavior: 'smooth' }); }
         if (act === 'timer-toggle') O.timer.toggle();
         if (act === 'timer-reset') O.timer.reset();
       });
       qin.addEventListener('input', () => { const p = D.parseQuick(qin.value); chips.innerHTML = qin.value.trim() ? D.quickChips(p).map((c) => `<span class="pill">${esc(c)}</span>`).join('') : ''; });
       qa.addEventListener('submit', (e) => { e.preventDefault(); if (O.quickAddTask(qin.value, { due: U.today() })) { qin.value = ''; chips.innerHTML = ''; } });
+      min.addEventListener('input', () => { const p = M.parse(min.value); mchips.innerHTML = min.value.trim() && p.amount ? [M.fmt(p.amount), p.type === 'income' ? 'Received' : M.catName(p.category), p.note ? `“${p.note}”` : ''].filter(Boolean).map((c) => `<span class="pill">${esc(c)}</span>`).join('') : ''; });
+      mqa.addEventListener('submit', (e) => { e.preventDefault(); if (O.quickMoney(min.value)) { min.value = ''; mchips.innerHTML = ''; } });
       const saveJ = U.debounce(() => {
         O.store.update((s) => { const k = U.today(); const cur = s.journal[k] || { mood: 0, text: '' }; cur.text = $('jtext').value; delete cur.sample; if (!cur.text && !cur.mood) delete s.journal[k]; else s.journal[k] = cur; }, { silent: true });
         stamp();

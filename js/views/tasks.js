@@ -4,7 +4,7 @@
   'use strict';
   const { u: U, d: D } = O;
   const esc = U.esc;
-  const mem = { view: 'today', list: 'all', q: '' };
+  const mem = { view: 'today', list: 'all', q: '', mode: 'list' };
   const VIEWS = [['today', 'Today'], ['upcoming', 'Upcoming'], ['anytime', 'Anytime'], ['done', 'Done']];
 
   /* ---------------------------------------------------------- the editor */
@@ -26,6 +26,10 @@
           <div class="row2">
             <div class="field"><label for="ed-list">List</label><select id="ed-list" data-k="list" class="input">${lists.map((l) => `<option value="${l.id}" ${l.id === t.list ? 'selected' : ''}>${esc(l.name)}</option>`).join('')}<option value="__new">New list…</option></select></div>
             <div class="field"><label for="ed-rep">Repeat</label><select id="ed-rep" data-k="repeat" class="input">${Object.entries(D.REPEAT).map(([k, v]) => `<option value="${k}" ${k === (t.repeat || '') ? 'selected' : ''}>${v}</option>`).join('')}</select></div>
+          </div>
+          <div class="row2">
+            <div class="field"><label for="ed-goal">Goal</label><select id="ed-goal" data-k="goal" class="input"><option value="">No goal</option>${O.store.state.goals.filter((g) => !g.done || g.id === t.goalId).map((g) => `<option value="${g.id}" ${g.id === t.goalId ? 'selected' : ''}>${esc(g.title)}</option>`).join('')}<option value="__new">New goal…</option></select></div>
+            <div class="field"><span class="label" id="ed-sl">Status</span><div class="seg" role="group" aria-labelledby="ed-sl">${[['todo', 'To do'], ['doing', 'Doing']].map(([k, v]) => `<button type="button" data-k="st-${k}" data-ed="status" data-v="${k}" aria-pressed="${!t.done && (t.status || 'todo') === k}" ${t.done ? 'disabled' : ''}>${v}</button>`).join('')}</div></div>
           </div>
           <div class="field"><span class="label" id="ed-pl">Priority</span><div class="seg" role="group" aria-labelledby="ed-pl">${D.PRIORITY.map((p, i) => `<button type="button" data-k="p${i}" data-ed="prio" data-v="${i}" aria-pressed="${(t.priority || 0) === i}">${p}</button>`).join('')}</div></div>
           <div class="field"><span class="label">Steps${t.subtasks.length ? ` <span class="muted num">${t.subtasks.filter((s) => s.done).length}/${t.subtasks.length}</span>` : ''}</span>
@@ -59,6 +63,10 @@
       if (k === 'due') set((t) => { t.due = v || null; });
       else if (k === 'time') set((t) => { t.time = v || null; if (v && !t.due) t.due = U.today(); });
       else if (k === 'repeat') set((t) => { t.repeat = v; if (v && !t.due) t.due = U.today(); });
+      else if (k === 'goal') {
+        if (v === '__new') { const name = await O.prompt({ title: 'New goal', label: 'What do you want to achieve?', placeholder: 'e.g. Land a summer internship', ok: 'Create goal' }); if (name) { let g; O.store.update(() => { g = O.goals.add({ title: name }); }); set((t) => { t.goalId = g.id; }); } else draw(); }
+        else set((t) => { t.goalId = v || null; });
+      }
       else if (k === 'list') {
         if (v === '__new') {
           const name = await O.prompt({ title: 'New list', label: 'List name', placeholder: 'e.g. Side project', ok: 'Create' });
@@ -87,6 +95,7 @@
       const ed = b.dataset.ed;
       if (ed === 'done') O.toggleTask(id);
       else if (ed === 'prio') set((t) => { t.priority = +b.dataset.v; });
+      else if (ed === 'status') set((t) => { t.status = b.dataset.v; });
       else if (ed === 'sub-done') set((t) => { const s = t.subtasks.find((x) => x.id === b.dataset.sid); if (s) s.done = !s.done; });
       else if (ed === 'sub-del') set((t) => { t.subtasks = t.subtasks.filter((x) => x.id !== b.dataset.sid); });
       else if (ed === 'focus') { O.store.update((s) => { s.timer.taskId = id; }); O.go('#/focus'); }
@@ -151,9 +160,13 @@
         <div class="tabs" role="tablist" id="tabs" aria-label="Which tasks"></div>
         <div class="task-tools">
           <div class="chips" id="chips" role="group" aria-label="Filter by list"></div>
-          <label class="search-field">${O.icon('search', 14)}<span class="visually-hidden">Search tasks</span><input class="input" id="q" type="search" placeholder="Search tasks" value="${esc(mem.q)}"></label>
+          <div class="tools-end">
+            <label class="search-field">${O.icon('search', 14)}<span class="visually-hidden">Search tasks</span><input class="input" id="q" type="search" placeholder="Search tasks" value="${esc(mem.q)}"></label>
+            <div class="seg" role="group" aria-label="Layout" id="mode"><button type="button" data-mode="list" aria-pressed="${mem.mode === 'list'}">${O.icon('list', 14)}List</button><button type="button" data-mode="board" aria-pressed="${mem.mode === 'board'}">${O.icon('board', 14)}Board</button></div>
+          </div>
         </div>
-        <div class="task-layout">
+        <div class="board" id="board" hidden></div>
+        <div class="task-layout" id="layout">
           <section aria-label="Task list">
             <form class="qa" id="qa" autocomplete="off">
               <div class="qa-field">${O.icon('plus')}<input name="q" placeholder="Add a task: Pay rent on 1 dec every month #home !high" aria-label="Add a task"></div>
@@ -226,15 +239,85 @@
         const ed = O.taskEditor(box, id, { onClose: () => sheet && sheet.close() });
         sheet.editor = ed;
       }
-      const all = () => { head(); list(); if (sheet && sheet.editor) sheet.editor.refresh(); else detail(); };
+      /* the board: To do, Doing, Done; drag a card to move it */
+      const COLS = [['todo', 'To do'], ['doing', 'Doing'], ['done', 'Done this week']];
+      const EMPTY = { todo: 'Nothing to do. Nice.', doing: 'Drag a task here when you start it.', done: 'Finished tasks land here.' };
+      function board() {
+        const today = U.today(), wk = U.addDays(today, -6), ts = filtered();
+        const col = {
+          todo: ts.filter((t) => !t.done && t.status !== 'doing').sort(D.sortTasks),
+          doing: ts.filter((t) => !t.done && t.status === 'doing').sort(D.sortTasks),
+          done: ts.filter((t) => t.done && t.doneAt && U.keyOf(t.doneAt) >= wk).sort((a, b) => b.doneAt - a.doneAt),
+        };
+        const card = (t) => `<div class="bcard ${t.done ? 'done' : ''}" data-card="${t.id}" tabindex="0" aria-label="${esc(t.title)}. Enter opens it; arrow keys move it.">
+            <div class="bcard-t">${esc(t.title)}</div>
+            <div class="bcard-m">${t.due ? `<span class="${t.due < today && !t.done ? 'late' : ''}">${esc(U.relDay(t.due))}${t.time ? ' ' + t.time : ''}</span>` : ''}${D.listName(t.list) ? `<span>${esc(D.listName(t.list))}</span>` : ''}${!t.done && t.priority === 3 ? '<span class="pill warn">High</span>' : ''}${t.subtasks && t.subtasks.length ? `<span>${t.subtasks.filter((x) => x.done).length}/${t.subtasks.length}</span>` : ''}</div>
+          </div>`;
+        O.fill($('board'), COLS.map(([k, label]) => `<section class="bcol" data-col="${k}" aria-label="${label}"><header><h3>${label}</h3><span class="count-chip">${col[k].length}</span></header>
+          <div class="bcards">${col[k].slice(0, 40).map(card).join('')}${col[k].length > 40 ? `<p class="hint">${col[k].length - 40} more; search to narrow.</p>` : ''}${!col[k].length ? `<div class="bempty">${EMPTY[k]}</div>` : ''}</div></section>`).join(''));
+      }
+      const moveTo = (id, colKey) => {
+        const t = D.task(id); if (!t) return;
+        if (colKey === 'done') { if (!t.done) O.toggleTask(id); return; }
+        O.store.update(() => { if (t.done) D.setDone(id, false); t.status = colKey; });
+      };
+      function layoutMode() {
+        const b = mem.mode === 'board';
+        $('board').hidden = !b; $('layout').hidden = b; $('tabs').hidden = b;
+        U.$$('#mode button', root).forEach((x) => x.setAttribute('aria-pressed', x.dataset.mode === mem.mode));
+      }
+      const all = () => { head(); layoutMode(); if (mem.mode === 'board') board(); else { list(); if (sheet && sheet.editor) sheet.editor.refresh(); else detail(); } };
       all();
       if (selected && U.isPhone()) openSheet(selected);
 
+      /* dragging board cards with a pointer (mouse, pen or finger) */
+      let drag = null;
+      root.addEventListener('pointerdown', (e) => {
+        const card = e.target.closest('.bcard'); if (!card || e.button !== 0) return;
+        drag = { id: card.dataset.card, card, x0: e.clientX, y0: e.clientY, on: false };
+      });
+      root.addEventListener('pointermove', (e) => {
+        if (!drag) return;
+        if (!drag.on) {
+          if (Math.hypot(e.clientX - drag.x0, e.clientY - drag.y0) < 6) return;
+          drag.on = true; const r = drag.card.getBoundingClientRect();
+          drag.ghost = drag.card.cloneNode(true); drag.ghost.classList.add('bghost'); drag.ghost.style.width = r.width + 'px';
+          drag.dx = e.clientX - r.left; drag.dy = e.clientY - r.top; document.body.appendChild(drag.ghost); drag.card.classList.add('lifting');
+          try { drag.card.setPointerCapture(e.pointerId); } catch (_) {}
+        }
+        drag.ghost.style.transform = `translate(${e.clientX - drag.dx}px, ${e.clientY - drag.dy}px) rotate(2deg)`;
+        const over = document.elementsFromPoint(e.clientX, e.clientY).find((n) => n.classList && n.classList.contains('bcol'));
+        U.$$('.bcol', root).forEach((c) => c.classList.toggle('drop', c === over));
+        drag.over = over && over.dataset.col;
+      });
+      const endDrag = () => {
+        if (!drag) return;
+        const d = drag; drag = null;
+        U.$$('.bcol', root).forEach((c) => c.classList.remove('drop'));
+        if (!d.on) { openSheet(d.id); return; }
+        d.ghost.remove(); d.card.classList.remove('lifting');
+        if (d.over) {
+          const t = D.task(d.id), colOf = t.done ? 'done' : t.status === 'doing' ? 'doing' : 'todo';
+          if (d.over !== colOf) { if (d.over === 'done') O.fx.burst(d.card); moveTo(d.id, d.over); }
+        }
+      };
+      root.addEventListener('pointerup', endDrag);
+      root.addEventListener('pointercancel', () => { if (drag && drag.ghost) drag.ghost.remove(); if (drag) drag.card.classList.remove('lifting'); drag = null; });
+      root.addEventListener('keydown', (e) => {
+        const card = e.target.closest('.bcard'); if (!card) return;
+        const order = ['todo', 'doing', 'done'], t = D.task(card.dataset.card), cur = t.done ? 'done' : t.status === 'doing' ? 'doing' : 'todo';
+        if (e.key === 'Enter') { e.preventDefault(); openSheet(card.dataset.card); }
+        const step = e.key === 'ArrowRight' ? 1 : e.key === 'ArrowLeft' ? -1 : 0;
+        if (step) { e.preventDefault(); const to = order[order.indexOf(cur) + step]; if (to) { moveTo(card.dataset.card, to); setTimeout(() => { const n = root.querySelector(`[data-card="${card.dataset.card}"]`); if (n) n.focus(); }, 30); } }
+      });
+
       root.addEventListener('click', async (e) => {
+        const md = e.target.closest('[data-mode]');
+        if (md) { mem.mode = md.dataset.mode; all(); return; }
         const tab = e.target.closest('[data-view]');
         if (tab) { mem.view = tab.dataset.view; head(); list(); return; }
         const lf = e.target.closest('[data-list]');
-        if (lf) { mem.list = lf.dataset.list; head(); list(); return; }
+        if (lf) { mem.list = lf.dataset.list; all(); return; }
         if (e.target.closest('[data-newlist]')) { const name = await O.prompt({ title: 'New list', label: 'List name', placeholder: 'e.g. Side project', ok: 'Create' }); if (name) { let id; O.store.update(() => { id = D.ensureList(name); }); mem.list = id; head(); list(); } return; }
         const open = e.target.closest('[data-act="open-task"]');
         if (open) { select(open.dataset.id === selected ? null : open.dataset.id); return; }
@@ -242,7 +325,7 @@
         O.handleCommon(e);
       });
       $('newbtn').addEventListener('click', () => qin.focus());
-      $('q').addEventListener('input', (e) => { mem.q = e.target.value; head(); list(); });
+      $('q').addEventListener('input', (e) => { mem.q = e.target.value; head(); if (mem.mode === 'board') board(); else list(); });
       qin.addEventListener('input', () => { chips.innerHTML = qin.value.trim() ? D.quickChips(D.parseQuick(qin.value)).map((c) => `<span class="pill">${esc(c)}</span>`).join('') : ''; });
       qa.addEventListener('submit', (e) => {
         e.preventDefault();

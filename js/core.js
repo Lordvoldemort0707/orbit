@@ -72,6 +72,9 @@
       focusMin: 25, shortMin: 5, longMin: 15, longEvery: 4,
       autoBreak: true, autoFocus: false, sound: true, notify: false, reminders: true,
       dayStart: 6, dayEnd: 24, weekStart: 1,
+      accent: 'teal', headings: 'serif', motion: 'full', celebrate: true, dailyXp: 120,
+      ambient: 'off', ambientVol: 0.5, ambientAuto: true,
+      location: null, currency: null,
     },
     lists: [
       { id: 'personal', name: 'Personal' },
@@ -85,6 +88,10 @@
     blocks: [],
     notes: [],
     journal: {},
+    goals: [],
+    money: { tx: [], budgets: {}, subs: [] },
+    countdowns: [],
+    achievements: {},
     timer: { mode: 'focus', status: 'idle', endsAt: null, left: null, startedAt: null, cycle: 0, taskId: null },
     seen: { onboarding: false },
   });
@@ -103,6 +110,7 @@
   }
   const listeners = new Set();
   let state = load();
+  let ver = 0; /* bumps on every change, so derived figures (XP, achievements) can be cached */
   let saveFailed = false;
   function save() {
     try { localStorage.setItem(KEY, JSON.stringify(state)); saveFailed = false; }
@@ -115,15 +123,16 @@
   O.store = {
     KEY,
     get state() { return state; },
-    update(fn, { silent = false } = {}) { fn(state); save(); if (!silent) emit(); },
+    get ver() { return ver; },
+    update(fn, { silent = false } = {}) { fn(state); ver++; save(); if (!silent) emit(); },
     subscribe(fn) { listeners.add(fn); return () => listeners.delete(fn); },
-    replace(next) { state = merge(defaults(), next); save(); emit(); },
-    reset() { state = defaults(); state.seen.onboarding = true; save(); emit(); },
+    replace(next) { state = merge(defaults(), next); ver++; save(); emit(); },
+    reset() { state = defaults(); state.seen.onboarding = true; ver++; save(); emit(); },
     emit,
     defaults,
   };
   /* another tab changed the data: take it and redraw */
-  window.addEventListener('storage', (e) => { if (e.key === KEY && e.newValue) { try { state = merge(defaults(), JSON.parse(e.newValue)); emit(); } catch (_) {} } });
+  window.addEventListener('storage', (e) => { if (e.key === KEY && e.newValue) { try { state = merge(defaults(), JSON.parse(e.newValue)); ver++; emit(); } catch (_) {} } });
 
   /* ------------------------------------------------------------------ domain */
   const D = (O.d = {});
@@ -367,6 +376,27 @@
     install: '<rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M12 7v7M9 11l3 3 3-3M10 18.5h4"/>',
     flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
     list: '<path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>',
+    goals: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/>',
+    money: '<rect x="2.5" y="6" width="19" height="13" rx="2.5"/><path d="M2.5 10h19M16.5 14.5h1.5"/><path d="M5 6V4.5h12.5V6"/>',
+    calendar: '<rect x="3" y="4.5" width="18" height="16.5" rx="2.5"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4M7.5 13.5h2M11 13.5h2M14.5 13.5h2M7.5 17h2M11 17h2"/>',
+    progress: '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4.5v1.5A3 3 0 0 0 7.5 10.5M17 6h2.5v1.5a3 3 0 0 1-3 3"/>',
+    trophy: '<path d="M8 21h8M12 17v4M7 4h10v5a5 5 0 0 1-10 0z"/><path d="M7 6H4.5v1.5A3 3 0 0 0 7.5 10.5M17 6h2.5v1.5a3 3 0 0 1-3 3"/>',
+    star: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z"/>',
+    flame: '<path d="M12 21c-3.9 0-6.5-2.6-6.5-6 0-3.6 3-5.4 3.6-9 2.4 1.2 3.4 3.4 3.4 5 1.1-.6 1.8-1.8 1.9-3 2.4 1.9 4.1 4.3 4.1 7 0 3.4-2.6 6-6.5 6z"/>',
+    sunrise: '<path d="M4 18h16M7 14.5a5 5 0 0 1 10 0M12 4v4M9.5 6.5 12 4l2.5 2.5M4.2 11l1.4 1M19.8 11l-1.4 1M3 21h18"/>',
+    sound: '<path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6M18 6.5a7.5 7.5 0 0 1 0 11"/>',
+    board: '<rect x="3" y="4" width="5" height="16" rx="1.5"/><rect x="9.5" y="4" width="5" height="11" rx="1.5"/><rect x="16" y="4" width="5" height="7" rx="1.5"/>',
+    hourglass: '<path d="M6.5 3h11M6.5 21h11M7.5 3c0 5 9 5 9 9s-9 4-9 9M16.5 3c0 5-9 5-9 9s9 4 9 9"/>',
+    link: '<path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1"/>',
+    palette: '<path d="M12 3a9 9 0 0 0 0 18c1.2 0 1.8-.8 1.8-1.7 0-1.3-1.2-1.6-1.2-2.8 0-1 .8-1.6 1.8-1.6H17a4 4 0 0 0 4-4c0-4.4-4-7.9-9-7.9z"/><circle cx="7.5" cy="11" r="1"/><circle cx="10.5" cy="7.5" r="1"/><circle cx="15" cy="7.5" r="1"/>',
+    pin2: '<path d="M12 21s-6.5-6-6.5-11a6.5 6.5 0 0 1 13 0c0 5-6.5 11-6.5 11z"/><circle cx="12" cy="10" r="2.3"/>',
+    w_clear: '<circle cx="12" cy="12" r="4.2"/><path d="M12 2.5v2M12 19.5v2M2.5 12h2M19.5 12h2M5.3 5.3l1.4 1.4M17.3 17.3l1.4 1.4M5.3 18.7l1.4-1.4M17.3 6.7l1.4-1.4"/>',
+    w_partly: '<path d="M8.5 6.2A4 4 0 0 1 15.3 8"/><path d="M8 3v1.2M3.6 7.6h1.2M4.9 4.5l.9.9"/><path d="M7 19.5h10a3.5 3.5 0 0 0 .4-7A5 5 0 0 0 8 13a3.3 3.3 0 0 0-1 6.5z"/>',
+    w_cloud: '<path d="M7 19h10.5a4 4 0 0 0 .5-8A6 6 0 0 0 6.6 12.6 3.3 3.3 0 0 0 7 19z"/>',
+    w_rain: '<path d="M7 15.5h10.5a3.8 3.8 0 0 0 .5-7.5A6 6 0 0 0 6.6 9.3 3.2 3.2 0 0 0 7 15.5z"/><path d="M8.5 18.5l-1 2M12.5 18.5l-1 2M16.5 18.5l-1 2"/>',
+    w_snow: '<path d="M7 15h10.5a3.8 3.8 0 0 0 .5-7.5A6 6 0 0 0 6.6 8.8 3.2 3.2 0 0 0 7 15z"/><path d="M8 19h.01M12 18.5h.01M16 19h.01M10 21.5h.01M14 21.5h.01"/>',
+    w_storm: '<path d="M7 14.5h10.5a3.8 3.8 0 0 0 .5-7.5A6 6 0 0 0 6.6 8.3 3.2 3.2 0 0 0 7 14.5z"/><path d="m12.5 15.5-2 3.5h3l-2 3"/>',
+    w_fog: '<path d="M4 9h16M3 13h18M5 17h14M8 21h8"/>',
   };
   O.icon = (name, size = 16, cls = '') => `<svg class="ic ${cls}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${P[name] || ''}</svg>`;
   /* the product's mark: one planet on its orbit */

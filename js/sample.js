@@ -10,6 +10,7 @@
   const round30 = (m) => Math.ceil(m / 30) * 30;
 
   O.loadSample = () => {
+    O.quietFx = true;
     const r = rng(20261107);
     const T = U.today(), now = U.nowMins();
     const pick = (xs) => xs[Math.floor(r() * xs.length)];
@@ -62,7 +63,7 @@
       add({ title: 'Reply to Aman about the hackathon team', list: 'work', due: U.addDays(T, -1), priority: 2 });
       add({ title: 'Submit the DBMS lab report', list: 'study', due: late ? U.addDays(T, 1) : T, time: late ? '10:00' : U.hm(t1), priority: 3, notes: 'Export the ER diagram as PNG and attach the SQL file.' });
       add({ title: 'Call Mom', list: 'personal', due: late ? U.addDays(T, 1) : T, time: late ? '19:00' : U.hm(t2) });
-      add({ title: 'Push portfolio fixes to GitHub', list: 'work', due: T, priority: 2 });
+      add({ title: 'Push portfolio fixes to GitHub', list: 'work', due: T, priority: 2, status: 'doing' });
       add({ title: 'Buy groceries', list: 'personal', due: T, subtasks: [{ id: U.uid(), title: 'Milk', done: true }, { id: U.uid(), title: 'Eggs', done: false }, { id: U.uid(), title: 'Oats', done: false }] });
       if (now > 7 * 60 + 40) add({ title: 'Morning workout', list: 'personal', due: T, done: true, doneAt: at(T, 7 * 60 + 40) });
       if (now > 9 * 60 + 10) add({ title: 'Review flashcards', list: 'study', due: T, done: true, doneAt: at(T, 9 * 60 + 10) });
@@ -122,6 +123,59 @@
         const mood = x < 0.07 ? 1 : x < 0.2 ? 2 : x < 0.45 ? 3 : x < 0.82 ? 4 : 5;
         s.journal[k] = { mood, text: r() < 0.7 ? pick(lines) : '', sample: true };
       }
+      /* goals, linked to tasks and habits */
+      const ago = (n, m = 600) => at(U.addDays(T, -n), m);
+      s.goals.push(
+        { id: 'g-intern', title: 'Land a summer internship', why: 'Real experience before final year', due: U.addDays(T, 70), createdAt: ago(40), done: false, doneAt: null, sample: true,
+          milestones: [{ id: 'm1', title: 'Update resume', done: true, doneAt: ago(12) }, { id: 'm2', title: 'Practise 50 DSA problems', done: true, doneAt: ago(3) }, { id: 'm3', title: 'Finish the portfolio site', done: false }, { id: 'm4', title: 'Apply to 15 companies', done: false }, { id: 'm5', title: 'Do 3 mock interviews', done: false }] },
+        { id: 'g-read', title: 'Read 12 books this year', why: 'One a month, fewer screens', due: `${T.slice(0, 4)}-12-31`, createdAt: ago(70), done: false, doneAt: null, sample: true,
+          milestones: [{ id: 'r1', title: 'Atomic Habits', done: true, doneAt: ago(50) }, { id: 'r2', title: 'Deep Work', done: true, doneAt: ago(21) }, { id: 'r3', title: 'The Pragmatic Programmer', done: false }, { id: 'r4', title: 'Designing Data-Intensive Applications', done: false }] },
+        { id: 'g-5k', title: 'Run a 5K without stopping', why: 'Feel fit and have more energy', due: U.addDays(T, 40), createdAt: ago(30), done: false, doneAt: null, sample: true,
+          milestones: [{ id: 'k1', title: 'Run 1 km without stopping', done: true, doneAt: ago(18) }, { id: 'k2', title: 'Run 3 km', done: false }, { id: 'k3', title: 'Sign up for a park run', done: false }] },
+        { id: 'g-drive', title: 'Pass the driving test', why: 'Drive home for the holidays', due: U.addDays(T, -20), createdAt: ago(90), done: true, doneAt: ago(22, 900), sample: true,
+          milestones: [{ id: 'd1', title: 'Learner licence', done: true, doneAt: ago(80) }, { id: 'd2', title: '10 practice drives', done: true, doneAt: ago(35) }, { id: 'd3', title: 'Book the test', done: true, doneAt: ago(30) }] },
+      );
+      const link = { 'Push portfolio fixes to GitHub': 'g-intern', 'Archive old GitHub repos': 'g-intern', 'Read chapter 4 of the OS book': null };
+      s.tasks.forEach((t) => { if (link[t.title]) t.goalId = link[t.title]; });
+      add({ title: 'Apply to 3 companies', list: 'work', due: U.addDays(T, 3), priority: 2, goalId: 'g-intern' });
+      add({ title: 'Book a mock interview with a senior', list: 'work', goalId: 'g-intern' });
+      add({ title: 'Buy running shoes', list: 'personal', goalId: 'g-5k', done: true, doneAt: ago(9, 1100), due: U.addDays(T, -9) });
+      s.habits.find((h) => h.id === 'h-code').goalId = 'g-intern';
+      s.habits.find((h) => h.id === 'h-read').goalId = 'g-read';
+      s.habits.find((h) => h.id === 'h-gym').goalId = 'g-5k';
+
+      /* money, in the user's currency: amounts are written in rupees and scaled */
+      const cur = O.money.currency(), rate = { INR: 1, JPY: 1.8, PKR: 3.3, BDT: 1.4, NPR: 1.6, LKR: 3.5 }[cur] || 1 / 85;
+      const amt = (v) => (rate === 1 || rate > 1 ? Math.round(v * rate) : Math.round(v * rate * 100) / 100);
+      const tx = (daysAgo, a, category, note, type = 'expense', m = 780) => s.money.tx.push({ id: U.uid(), date: U.addDays(T, -daysAgo), amount: amt(a), type, category, note, createdAt: at(U.addDays(T, -daysAgo), m), sample: true });
+      const foods = ['Lunch at the canteen', 'Chai and samosa', 'Dinner with friends', 'Groceries', 'Coffee', 'Pizza night', 'Breakfast', 'Fruit and milk'];
+      const rides = ['Metro card top-up', 'Auto to college', 'Cab home', 'Bus pass'];
+      for (let i = 60; i >= 0; i--) {
+        if (i === 0 && now < 9 * 60) break;
+        const n = 1 + Math.floor(r() * 2.4);
+        for (let j = 0; j < n; j++) tx(i, 60 + Math.floor(r() * 290), 'food', pick(foods), 'expense', 540 + j * 260);
+        if (r() < 0.45) tx(i, 40 + Math.floor(r() * 180), 'transport', pick(rides));
+        if (r() < 0.08) tx(i, 400 + Math.floor(r() * 1800), 'shopping', pick(['T-shirt', 'Earphones', 'Shoes', 'Backpack', 'Birthday gift']));
+        if (r() < 0.1) tx(i, 150 + Math.floor(r() * 600), 'fun', pick(['Movie tickets', 'Bowling', 'Game on sale', 'Concert entry']));
+        if (r() < 0.06) tx(i, 120 + Math.floor(r() * 700), 'study', pick(['Printouts', 'Notebook and pens', 'OS textbook', 'Online course']));
+        if (r() < 0.03) tx(i, 150 + Math.floor(r() * 400), 'health', pick(['Pharmacy', 'Doctor visit']));
+      }
+      // pocket money on the 1st, and last month's bills
+      for (const back of [0, 1, 2]) { const d = new Date(U.parseKey(T)); d.setDate(1); d.setMonth(d.getMonth() - back); const k = U.key(d); const ago1 = U.diffDays(T, k); if (ago1 <= 60) { tx(ago1, 12000, 'income', 'Pocket money from home', 'income', 600); tx(ago1, 299, 'bills', 'Phone recharge', 'expense', 640); } }
+      Object.assign(s.money.budgets, { food: amt(6000), transport: amt(2000), shopping: amt(3000), fun: amt(2000), study: amt(1500), bills: amt(1500) });
+      s.money.subs.push(
+        { id: 'sub-spotify', name: 'Spotify', amount: amt(119), cycle: 'monthly', next: U.addDays(T, 2), category: 'fun', autoLog: true, sample: true },
+        { id: 'sub-netflix', name: 'Netflix', amount: amt(199), cycle: 'monthly', next: U.addDays(T, 12), category: 'fun', autoLog: true, sample: true },
+        { id: 'sub-icloud', name: 'iCloud storage', amount: amt(75), cycle: 'monthly', next: U.addDays(T, 19), category: 'bills', autoLog: true, sample: true },
+        { id: 'sub-domain', name: 'Portfolio domain', amount: amt(899), cycle: 'yearly', next: U.addDays(T, 140), category: 'study', autoLog: true, sample: true },
+      );
+
+      /* countdowns */
+      s.countdowns.push(
+        { id: 'cd-hack', title: 'Hackathon demo day', date: U.addDays(T, 4), createdAt: ago(10), sample: true },
+        { id: 'cd-exam', title: 'DBMS end-semester exam', date: U.addDays(T, 9), createdAt: ago(20), sample: true },
+        { id: 'cd-home', title: 'Trip home', date: U.addDays(T, 23), createdAt: ago(5), sample: true },
+      );
       s.seen.onboarding = true;
       s.hasSample = true;
     });
@@ -129,6 +183,10 @@
     const today = U.today();
     console.assert(D.focusOn(today) === O.store.state.sessions.filter((x) => U.keyOf(x.start) === today).reduce((a, x) => a + x.minutes, 0), 'focus total matches its sessions');
     console.assert(O.store.state.tasks.every((t) => !t.done || t.doneAt), 'every done task has a time');
+    const x = O.xp.compute();
+    console.assert(Object.values(x.byDay).reduce((a, b) => a + b, 0) === x.total && Object.values(x.bySource).reduce((a, b) => a + b, 0) === x.total, 'XP by day and by source both add up to the total');
+    O.celebrateCheck(true);
+    O.quietFx = false;
   };
 
   O.removeSample = (s = null) => {
@@ -140,6 +198,12 @@
       x.sessions = x.sessions.filter((t) => !t.sample);
       x.blocks = x.blocks.filter((t) => !t.sample);
       x.notes = x.notes.filter((t) => !t.sample);
+      x.goals = x.goals.filter((t) => !t.sample);
+      x.tasks.forEach((t) => { if (t.goalId && !x.goals.some((g) => g.id === t.goalId)) t.goalId = null; });
+      x.habits.forEach((h) => { if (h.goalId && !x.goals.some((g) => g.id === h.goalId)) h.goalId = null; });
+      x.money.tx = x.money.tx.filter((t) => !t.sample);
+      x.money.subs = x.money.subs.filter((t) => !t.sample);
+      x.countdowns = x.countdowns.filter((t) => !t.sample);
       for (const k of Object.keys(x.journal)) if (x.journal[k].sample) delete x.journal[k];
       x.hasSample = false;
     };
