@@ -75,6 +75,7 @@
       accent: 'teal', headings: 'serif', motion: 'full', celebrate: true, dailyXp: 120,
       ambient: 'off', ambientVol: 0.5, ambientAuto: true,
       location: null, currency: null,
+      newCards: 20, todayHidden: [], todayOrder: null,
     },
     lists: [
       { id: 'personal', name: 'Personal' },
@@ -92,6 +93,11 @@
     money: { tx: [], budgets: {}, subs: [] },
     countdowns: [],
     achievements: {},
+    decks: [],
+    cards: [],
+    reviews: [],
+    wrapups: {},
+    weekly: {},
     timer: { mode: 'focus', status: 'idle', endsAt: null, left: null, startedAt: null, cycle: 0, taskId: null },
     seen: { onboarding: false },
   });
@@ -253,7 +259,9 @@
   D.focusOn = (k) => D.sessionsOn(k).reduce((a, s) => a + s.minutes, 0);
 
   /* planner */
-  D.blocksOn = (k) => S().blocks.filter((b) => b.date === k).sort((a, b) => a.start - b.start);
+  /* a block is one day's, or repeats each week on its days (a class timetable) from its date on */
+  D.blockOn = (b, k) => (b.days && b.days.length ? k >= b.date && b.days.includes(U.dow(k)) && !(b.skip || []).includes(k) && (!b.until || k <= b.until) : b.date === k);
+  D.blocksOn = (k) => S().blocks.filter((b) => D.blockOn(b, k)).sort((a, b) => a.start - b.start);
   D.KINDS = { work: 'Work', study: 'Study', personal: 'Personal', health: 'Health' };
 
   /* journal */
@@ -304,15 +312,28 @@
     take(/\s(?:at\s)?(\d{1,2})(?::(\d{2}))?\s?(am|pm)(?=\s)/i, (_, h, m, ap) => { h = +h % 12 + (ap.toLowerCase() === 'pm' ? 12 : 0); if (h > 23) return false; out.time = `${pad(h)}:${pad(+(m || 0))}`; });
     take(/\s(?:at\s)?([01]?\d|2[0-3]):([0-5]\d)(?=\s)/, (_, h, m) => { out.time = `${pad(+h)}:${m}`; });
     take(/\s(noon|midday)(?=\s)/i, () => { out.time = '12:00'; });
-    // dates
+    // "at 8": a bare hour after "at"; 1 to 7 mean the afternoon, 8 to 11 the next time that hour comes round
+    take(/\sat (\d{1,2})(?=\s)/i, (_, h) => { h = +h; if (h < 1 || h > 12) return false; const hh = h === 12 ? 12 : h <= 7 ? h + 12 : U.nowMins() < h * 60 ? h : h + 12; out.time = `${pad(hh)}:00`; });
+    // dates ("tom" is left alone: it is more often a name than tomorrow)
     take(/\s(today|tod|tonight)(?=\s)/i, (_, w) => { out.due = today; if (w.toLowerCase() === 'tonight' && !out.time) out.time = '20:00'; });
-    take(/\s(tomorrow|tmr|tmrw|tom)(?=\s)/i, () => { out.due = U.addDays(today, 1); });
+    take(/\s(tomorrow|tmr|tmrw)(?=\s)/i, () => { out.due = U.addDays(today, 1); });
     take(/\snext week(?=\s)/i, () => { let k = U.addDays(today, 1); while (U.dow(k) !== 1) k = U.addDays(k, 1); out.due = k; });
     take(/\sin (\d{1,3}) ?(days?|d|weeks?|w)(?=\s)/i, (_, n, u) => { out.due = U.addDays(today, +n * (/^w/i.test(u) ? 7 : 1)); });
     take(/\s(\d{4})-(\d{2})-(\d{2})(?=\s)/, (_, y, m, d) => { out.due = `${y}-${m}-${d}`; });
     take(/\s(\d{1,2}) ([a-z]{3})[a-z]*(?=\s)/i, (_, d, mon) => { const mi = MONTHS.indexOf(mon.toLowerCase()); if (mi < 0) return false; out.due = futureDate(mi, +d); });
     take(/\s([a-z]{3})[a-z]* (\d{1,2})(?=\s)/i, (_, mon, d) => { const mi = MONTHS.indexOf(mon.toLowerCase()); if (mi < 0) return false; out.due = futureDate(mi, +d); });
-    take(/\s(?:on |next |this )?(sun|mon|tue|tues|wed|thu|thur|thurs|fri|sat)(?:day|nesday|sday|urday|rsday)?(?=\s)/i, (_, w) => { const i = WD.indexOf(w.slice(0, 3).toLowerCase()); let k = today; for (let j = 0; j < 7; j++) { if (U.dow(k) === i) break; k = U.addDays(k, 1); } out.due = k; });
+    // "on the 1st", "15th of the month": the next time that day of the month comes round
+    take(/\s(?:on\s)?(?:the\s)?(\d{1,2})(?:st|nd|rd|th)(?:\s+of\s+(?:the\s+|every\s+)?month)?(?=\s)/i, (_, d) => {
+      d = +d; if (d < 1 || d > 31) return false;
+      const dt = U.parseKey(today); if (dt.getDate() > d) { dt.setDate(1); dt.setMonth(dt.getMonth() + 1); }
+      dt.setDate(Math.min(d, new Date(dt.getFullYear(), dt.getMonth() + 1, 0).getDate())); out.due = U.key(dt);
+    });
+    // weekdays: a full name anywhere; a short one ("fri") only after on/next/this/by, or as the last word,
+    // so "sun cream" and "sat exam" stay text. "every monday" also repeats weekly
+    const setWd = (w) => { const i = WD.indexOf(w.slice(0, 3).toLowerCase()); let k = today; for (let j = 0; j < 7; j++) { if (U.dow(k) === i) break; k = U.addDays(k, 1); } out.due = k; };
+    take(/\s(?:(on|next|this|by|every)\s)?(sunday|monday|tuesday|wednesday|thursday|friday|saturday)s?(?=\s)/i, (_, pre, w) => { setWd(w); if (pre && pre.toLowerCase() === 'every') out.repeat = 'weekly'; });
+    take(/\s(?:on|next|this|by)\s(sun|mon|tue|tues|wed|thu|thur|thurs|fri|sat)(?=\s)/i, (_, w) => setWd(w));
+    take(/\s(sun|mon|tue|tues|wed|thu|thur|thurs|fri|sat)\s*$/i, (_, w) => setWd(w));
     if (out.repeat && !out.due) { out.due = today; if (out.repeat === 'weekdays') while ([0, 6].includes(U.dow(out.due))) out.due = U.addDays(out.due, 1); }
     if (out.time && !out.due) out.due = U.mins(out.time) > U.nowMins() ? today : U.addDays(today, 1);
     // "Pay rent on 1 dec" leaves "Pay rent on": drop the word that only pointed at the date
@@ -376,6 +397,13 @@
     install: '<rect x="6" y="2.5" width="12" height="19" rx="2.5"/><path d="M12 7v7M9 11l3 3 3-3M10 18.5h4"/>',
     flag: '<path d="M5 21V4M5 4h11l-2 4 2 4H5"/>',
     list: '<path d="M9 6h11M9 12h11M9 18h11M4.5 6h.01M4.5 12h.01M4.5 18h.01"/>',
+    study: '<rect x="3" y="6" width="14" height="14" rx="2.5"/><path d="M7 3h11.5A2.5 2.5 0 0 1 21 5.5V17"/><path d="M7 11h6M7 15h4"/>',
+    review: '<path d="M12 3a9 9 0 1 0 9 9"/><path d="m21 3-9 9"/><path d="M15 3h6v6"/>',
+    starf: '<path d="m12 3 2.7 5.6 6.1.9-4.4 4.3 1 6.1L12 17l-5.4 2.9 1-6.1-4.4-4.3 6.1-.9z" fill="currentColor"/>',
+    layout: '<rect x="3" y="3" width="18" height="6" rx="2"/><rect x="3" y="12" width="8" height="9" rx="2"/><rect x="14" y="12" width="7" height="9" rx="2"/>',
+    up: '<path d="m6 15 6-6 6 6"/>',
+    down: '<path d="m6 9 6 6 6-6"/>',
+    share: '<path d="M12 3v12M7 8l5-5 5 5"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/>',
     goals: '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2"/>',
     money: '<rect x="2.5" y="6" width="19" height="13" rx="2.5"/><path d="M2.5 10h19M16.5 14.5h1.5"/><path d="M5 6V4.5h12.5V6"/>',
     calendar: '<rect x="3" y="4.5" width="18" height="16.5" rx="2.5"/><path d="M3 9.5h18M8 2.5v4M16 2.5v4M7.5 13.5h2M11 13.5h2M14.5 13.5h2M7.5 17h2M11 17h2"/>',

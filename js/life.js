@@ -58,16 +58,21 @@
   M.parse = (text) => {
     let s = ' ' + text.toLowerCase() + ' ';
     const out = { amount: null, type: 'expense', category: 'other', note: '', date: U.today() };
-    const m = s.match(/([+-]?)\s*[₹$€£]?\s*(\d+(?:[.,]\d{1,2})?)\s*(k)?/);
-    if (m) { out.amount = parseFloat(m[2].replace(',', '.')) * (m[3] ? 1000 : 1); if (m[1] === '+') out.type = 'income'; s = s.replace(m[0], ' '); }
+    // the amount: one with a currency sign or a "k" if there is one, otherwise the largest number ("2 coffees 120" is 120)
+    const nums = [...s.matchAll(/(^|\s)([+-]?)\s*([₹$€£])?\s*(\d+(?:[.,]\d{1,2})?)\s*(k\b)?/gi)].map((x) => ({ raw: x[0], sign: x[2], cur: !!x[3] || !!x[5], v: parseFloat(x[4].replace(',', '.')) * (x[5] ? 1000 : 1) }));
+    const pickN = nums.find((n) => n.cur) || nums.slice().sort((a, b) => b.v - a.v)[0];
+    if (pickN) { out.amount = pickN.v; if (pickN.sign === '+') out.type = 'income'; s = s.replace(pickN.raw, ' '); }
     if (/\byesterday\b/.test(s)) { out.date = U.addDays(U.today(), -1); s = s.replace(/\byesterday\b/, ' '); }
     s = s.replace(/\b(spent|paid|for|on|at|rs\.?|inr|rupees?|bucks)\b/g, ' ');
     const words = s.split(/\s+/).filter(Boolean);
     if (words.some((w) => M.INCOME.some((x) => w.startsWith(x)))) out.type = 'income';
     if (out.type === 'income') out.category = 'income';
-    else for (const [id, c] of Object.entries(M.CATS)) if (words.some((w) => w === id || c.words.includes(w))) { out.category = id; break; }
-    const note = text.replace(/([+-]?)\s*[₹$€£]?\s*\d+(?:[.,]\d{1,2})?\s*k?\b/i, '').replace(/\b(spent|paid|rs\.?|inr|rupees?|yesterday)\b/gi, '').replace(/\s+/g, ' ').trim();
-    out.note = note.replace(/^(on|for|at)\s+/i, '');
+    else for (const [id, c] of Object.entries(M.CATS)) if (words.some((w) => { const one = w.replace(/(es|s)$/, ''); return w === id || c.words.includes(w) || c.words.includes(one) || c.words.includes(w.replace(/s$/, '')); })) { out.category = id; break; }
+    // the note is what is left, with the words around the amount kept apart
+    let note = ' ' + text + ' ';
+    if (pickN) { const re = new RegExp('(^|\\s)[+-]?\\s*[₹$€£]?\\s*' + String(pickN.raw.match(/\d+(?:[.,]\d{1,2})?/)[0]).replace('.', '\\.') + '\\s*k?(?=\\s|$)', 'i'); note = note.replace(re, ' '); }
+    note = note.replace(/\b(spent|paid|rs\.?|inr|rupees?|bucks|yesterday|got|received)\b/gi, ' ').replace(/\s+/g, ' ').trim();
+    out.note = note.replace(/^(on|for|at|from)\s+/i, '').replace(/\s+(on|for|at|from)$/i, '');
     return out;
   };
   M.addTx = (f) => { const t = { id: U.uid(), date: U.today(), amount: 0, type: 'expense', category: 'other', note: '', createdAt: Date.now(), ...f }; S().money.tx.push(t); return t; };
@@ -95,12 +100,12 @@
 
   /* =================================================================== XP */
   const X = (O.xp = {});
-  X.RULES = { task: 10, taskHigh: 5, taskMed: 2, habit: 5, streak7: 25, streak30: 100, streak100: 300, focusMin: 1, journal: 5, milestone: 20, goal: 100, tx: 2, txDailyCap: 5 };
+  X.RULES = { task: 10, taskHigh: 5, taskMed: 2, habit: 5, streak7: 25, streak30: 100, streak100: 300, focusMin: 1, journal: 5, milestone: 20, goal: 100, tx: 2, txDailyCap: 5, card: 1, cardDailyCap: 100, wrapup: 10, top3: 15 };
   X.TITLES = [[1, 'Starter'], [3, 'Steady'], [6, 'Focused'], [10, 'Driven'], [15, 'Unstoppable'], [20, 'Legend'], [30, 'Mythic']];
   let memoV = -1, memo = null;
   X.compute = () => {
     if (memoV === O.store.ver && memo) return memo;
-    const s = S(), R = X.RULES, byDay = {}, bySource = { Tasks: 0, Habits: 0, Focus: 0, Journal: 0, Goals: 0, Money: 0 };
+    const s = S(), R = X.RULES, byDay = {}, bySource = { Tasks: 0, Habits: 0, Focus: 0, Study: 0, Journal: 0, Goals: 0, Money: 0, Reviews: 0 };
     const add = (k, n, src) => { if (!k || !n) return; byDay[k] = (byDay[k] || 0) + n; bySource[src] += n; };
     for (const t of s.tasks) if (t.done && t.doneAt) add(U.keyOf(t.doneAt), R.task + (t.priority === 3 ? R.taskHigh : t.priority === 2 ? R.taskMed : 0), 'Tasks');
     const today = U.today();
@@ -123,12 +128,23 @@
     const txDay = {};
     for (const t of s.money.tx) { if (t.subId) continue; txDay[t.date] = (txDay[t.date] || 0) + 1; }
     for (const [k, n] of Object.entries(txDay)) add(k, Math.min(n, R.txDailyCap) * R.tx, 'Money');
+    const cardDay = {};
+    for (const r of s.reviews) { const k = U.keyOf(r.at); cardDay[k] = (cardDay[k] || 0) + 1; }
+    for (const [k, n] of Object.entries(cardDay)) add(k, Math.min(n, R.cardDailyCap) * R.card, 'Study');
+    for (const k of Object.keys(s.wrapups)) add(k, R.wrapup, 'Reviews');
+    for (const k of X.top3Days()) add(k, R.top3, 'Tasks');
     const total = Object.values(byDay).reduce((a, b) => a + b, 0);
     memo = { total, byDay, bySource, ...X.level(total) };
     memoV = O.store.ver;
     return memo;
   };
   /* each level asks for 50 more XP than the last: 100, 150, 200 … */
+  /* days on which every task marked top 3 for that day was finished that day */
+  X.top3Days = () => {
+    const by = {};
+    for (const t of S().tasks) if (t.top) (by[t.top] = by[t.top] || []).push(t);
+    return Object.entries(by).filter(([k, ts]) => ts.length >= 1 && ts.every((t) => t.done && t.doneAt && U.keyOf(t.doneAt) === k)).map(([k]) => k);
+  };
   X.need = (L) => 100 + (L - 1) * 50;
   X.level = (total) => {
     let L = 1, left = total;
@@ -167,6 +183,8 @@
       goals: s.goals.filter((g) => g.done).length, milestones: s.goals.reduce((a, g) => a + (g.milestones || []).filter((m) => m.done).length, 0),
       tx: s.money.tx.filter((t) => !t.subId).length, underMonths, perfect, notes: s.notes.length,
       countdowns: s.countdowns.length, level: X.compute().level,
+      cards: s.reviews.length, wrapups: Object.keys(s.wrapups).length, top3: X.top3Days().length,
+      studyStreak: (() => { const days = new Set(s.reviews.map((r) => U.keyOf(r.at))); let k = days.has(today) ? today : U.addDays(today, -1), n = 0; while (days.has(k)) { n++; k = U.addDays(k, -1); } return n; })(),
     };
   }
   A.LIST = [
@@ -190,6 +208,11 @@
     { id: 'money-30', name: 'Penny wise', desc: 'Log 30 expenses', icon: 'money', key: 'tx', target: 30 },
     { id: 'budget', name: 'Under budget', desc: 'Finish a month under your budget', icon: 'money', key: 'underMonths', target: 1 },
     { id: 'perfect', name: 'Perfect day', desc: 'All habits and 3 tasks in a day', icon: 'star', key: 'perfect', target: 1 },
+    { id: 'cards-1', name: 'First recall', desc: 'Review your first flashcard', icon: 'study', key: 'cards', target: 1 },
+    { id: 'cards-500', name: 'Memory palace', desc: 'Review 500 flashcards', icon: 'study', key: 'cards', target: 500 },
+    { id: 'study-7', name: 'Daily learner', desc: 'Study flashcards 7 days in a row', icon: 'study', key: 'studyStreak', target: 7 },
+    { id: 'top3', name: 'Big three', desc: 'Finish all of a day’s top 3', icon: 'starf', key: 'top3', target: 1 },
+    { id: 'wrap-7', name: 'Closer', desc: 'Wrap up 7 days', icon: 'review', key: 'wrapups', target: 7 },
     { id: 'level-5', name: 'Rising', desc: 'Reach level 5', icon: 'progress', key: 'level', target: 5 },
     { id: 'level-10', name: 'Driven', desc: 'Reach level 10', icon: 'progress', key: 'level', target: 10 },
   ];

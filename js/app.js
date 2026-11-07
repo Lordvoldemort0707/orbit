@@ -7,9 +7,9 @@
 
   const GROUPS = [
     ['', [['today', 'Today'], ['tasks', 'Tasks'], ['calendar', 'Calendar'], ['planner', 'Planner']]],
-    ['Grow', [['habits', 'Habits'], ['goals', 'Goals'], ['focus', 'Focus']]],
+    ['Grow', [['habits', 'Habits'], ['goals', 'Goals'], ['focus', 'Focus'], ['study', 'Study']]],
     ['Life', [['money', 'Money'], ['notes', 'Notes'], ['journal', 'Journal']]],
-    ['Insights', [['stats', 'Stats'], ['progress', 'Progress']]],
+    ['Insights', [['review', 'Review'], ['stats', 'Stats'], ['progress', 'Progress']]],
   ].map(([g, items]) => [g, items.map(([id, label]) => ({ id, label, icon: id === 'calendar' ? 'calendar' : id }))]);
   const TABS = ['today', 'tasks', 'habits', 'calendar'];
   const ALL = [...GROUPS.flatMap(([, xs]) => xs), { id: 'settings', label: 'Settings', icon: 'settings' }];
@@ -49,6 +49,8 @@
     const open = D.openToday(today).length;
     const c = document.querySelector('[data-navcount="tasks"]');
     if (c) { c.textContent = open || ''; c.setAttribute('aria-label', open ? `${open} due today` : ''); }
+    const sc = document.querySelector('[data-navcount="study"]');
+    if (sc && O.cards) { const n = O.cards.dueCount(); sc.textContent = n || ''; sc.setAttribute('aria-label', n ? `${n} cards due` : ''); }
     const name = s.profile.name.trim(), x = O.xp.compute();
     $('user-row').href = '#/progress';
     $('user-row').innerHTML = `<span class="avatar lvl-avatar" aria-hidden="true">${x.level}</span><span class="who"><b>${esc(name || 'You')}</b><span>Level ${x.level} · ${esc(x.title)}</span><span class="side-xp"><i style="width:${((x.into / x.need) * 100).toFixed(1)}%"></i></span></span>`;
@@ -167,6 +169,13 @@
       O.toast(`It’s ${now}: ${t.title}`, { action: 'Done', onAction: () => O.toggleTask(t.id), ms: 12000 });
       O.notify(t.title, `Due now, ${now}`);
     }
+    for (const h of D.activeHabits()) {
+      if (!h.remindAt || h.remindAt !== now || !D.isScheduled(h, today) || D.hDone(h, today) || fired.has(h.id + now)) continue;
+      fired.add(h.id + now);
+      O.sound('chime');
+      O.toast(`Time for ${h.name}`, { action: 'Done', ms: 12000, onAction: () => { O.store.update(() => D.setCount(h, today, h.target || 1)); } });
+      O.notify(h.name, 'Your habit reminder');
+    }
   }
   setInterval(heartbeat, 20000);
 
@@ -178,6 +187,7 @@
   if ('serviceWorker' in navigator && /^https?:$/.test(location.protocol)) {
     window.addEventListener('load', () => {
       navigator.serviceWorker.register('sw.js').then((reg) => {
+        if (reg.waiting && navigator.serviceWorker.controller) O.toast('A new version of Orbit is ready.', { action: 'Reload', ms: 15000, onAction: () => reg.waiting.postMessage('skip-waiting') });
         reg.addEventListener('updatefound', () => {
           const w = reg.installing;
           w && w.addEventListener('statechange', () => {

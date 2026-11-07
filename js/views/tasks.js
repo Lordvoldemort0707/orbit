@@ -43,6 +43,7 @@
         <div class="detail-foot">
           <span>Added ${esc(U.relDayInline(U.keyOf(t.createdAt)))}${t.done && t.doneAt ? ` · done ${esc(U.relDayInline(U.keyOf(t.doneAt)))} at ${U.timeOf(t.doneAt)}` : ''} <span class="saved-stamp" data-stamp></span></span>
           <span style="display:flex;gap:6px">
+            ${!t.done ? `<button type="button" class="btn sm ghost" data-ed="top" aria-pressed="${t.top === U.today()}">${O.icon(t.top === U.today() ? 'starf' : 'star', 14)}${t.top === U.today() ? 'In today’s top 3' : 'Top 3 today'}</button>` : ''}
             <button type="button" class="btn sm ghost" data-ed="focus">${O.icon('focus', 14)}Focus on this</button>
             <button type="button" class="btn sm danger" data-ed="delete">${O.icon('trash', 14)}Delete</button>
           </span>
@@ -99,6 +100,7 @@
       else if (ed === 'sub-done') set((t) => { const s = t.subtasks.find((x) => x.id === b.dataset.sid); if (s) s.done = !s.done; });
       else if (ed === 'sub-del') set((t) => { t.subtasks = t.subtasks.filter((x) => x.id !== b.dataset.sid); });
       else if (ed === 'focus') { O.store.update((s) => { s.timer.taskId = id; }); O.go('#/focus'); }
+      else if (ed === 'top') O.toggleTop(id);
       else if (ed === 'delete') {
         const s = O.store.state, i = s.tasks.findIndex((x) => x.id === id), t = s.tasks[i];
         O.store.update((st) => { st.tasks.splice(i, 1); });

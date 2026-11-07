@@ -28,7 +28,7 @@ Then open http://localhost:5173. Add `?demo` to the address on a fresh browser t
 | Today | Greeting with the one thing that needs you, weather, your next countdown and longest streak; a daily XP ring and your level; counts; a strip of your whole day; tasks, habits, goals, money, mood and notes |
 | Tasks | Today, Upcoming, Anytime and Done, or a **Board** you drag cards across (To do, Doing, Done); lists, search, steps, repeats, priorities, goals; type `Call Mom tomorrow 6pm #family !high` and the fields fill in |
 | Calendar | The month with tasks, plans, habits, spending, moods and countdowns on each day; a day panel; countdowns to exams, trips and deadlines |
-| Planner | Drag on the day to block out time, drag to move, drag the foot to resize; focus sessions and timed tasks shown against the plan |
+| Planner | Drag on the day to block out time, drag to move, drag the foot to resize; blocks can repeat every week (a class timetable); focus sessions and timed tasks shown against the plan |
 | Habits | Tick the last seven days in place, count habits (8 glasses), streaks, best run, a history heatmap you can click to fix; link a habit to a goal |
 | Goals | Long-term goals with milestones, a target date and a reason; progress fills in from milestones and linked tasks; confetti when you achieve one |
 | Focus | Pomodoro timer with breaks, linked to a task, logs every session; **focus sounds** (rain, brown noise, waves, café hum, white noise) that can follow the timer |
@@ -36,13 +36,15 @@ Then open http://localhost:5173. Add `?demo` to the address on a fresh browser t
 | Notes | Markdown-lite notes with checklists, links and `#tags`, pinning, search, autosave |
 | Journal | A mood and a line a day, a 7-day mood line, which weekdays feel best |
 | Stats | 7, 30 or 90 days of tasks, focus, habit days kept and mood, each against the period before |
+| Study | Flashcard decks with spaced repetition: each answer (Again, Hard, Good, Easy) decides when the card comes back; paste a list to add many at once; Space and 1 to 4 on the keyboard |
+| Review | **Wrap up the day**: carry over what's open, star tomorrow's top 3, mood, close the day. **Weekly review**: the week against the one before, wins, habits, the next 7 days, and three questions saved to Notes |
 | Progress | Your level and XP, XP per day against your daily goal, where XP comes from, and 22 achievements to unlock |
 
-**Make it yours (Settings):** light, dark or system; six accent colours; editorial or modern headings; full or reduced motion; celebrations on or off; a daily XP goal; weather for your city; your currency.
+**Make it yours:** show, hide and reorder the sections of Today (the layout button, top right); in Settings, light, dark or system; six accent colours; editorial or modern headings; full or reduced motion; celebrations on or off; a daily XP goal; weather for your city; your currency.
 
 **XP:** a task is 10 (+5 if high priority), a habit check-in 5 (+25 at a 7-day streak, +100 at 30), focus 1 a minute, a journal entry 5, a milestone 20, a goal 100, a money entry 2. It is worked out from what you did, so undoing something takes its XP back.
 
-**Shortcuts:** `Ctrl K` search and commands (type `250 coffee` there to log spending) · `N` new task · `G` then `T/K/C/P/H/G/F/M/N/J/S/L` to jump · `Space` start or pause on Focus · `?` the full list.
+**Shortcuts:** `Ctrl K` search and commands (type `250 coffee` there to log spending) · `N` new task · star a task for today's **top 3** · `G` then `T/K/C/P/H/G/F/M/N/J/S/L` to jump · `Space` start or pause on Focus · `?` the full list.
 
 ## Your data
 

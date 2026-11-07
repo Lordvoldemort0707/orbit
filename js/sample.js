@@ -176,6 +176,58 @@
         { id: 'cd-exam', title: 'DBMS end-semester exam', date: U.addDays(T, 9), createdAt: ago(20), sample: true },
         { id: 'cd-home', title: 'Trip home', date: U.addDays(T, 23), createdAt: ago(5), sample: true },
       );
+      /* a weekly class timetable */
+      const from = U.addDays(T, -60);
+      s.blocks.push(
+        { id: 'wk-dbms', date: from, days: [1, 3, 5], start: 600, end: 660, title: 'Lecture: DBMS', kind: 'study', sample: true },
+        { id: 'wk-net', date: from, days: [2], start: 840, end: 960, title: 'Lab: Computer networks', kind: 'study', sample: true },
+        { id: 'wk-bad', date: from, days: [2, 4], start: 1110, end: 1200, title: 'Badminton', kind: 'health', sample: true },
+      );
+
+      /* today's top 3, and two past days where all three got done */
+      for (const title of ['Submit the DBMS lab report', 'Push portfolio fixes to GitHub', 'Call Mom']) { const t = s.tasks.find((x) => x.title === title && !x.done); if (t) t.top = t.due; }
+      for (const back of [3, 6]) { const k = U.addDays(T, -back); s.tasks.filter((t) => t.done && U.keyOf(t.doneAt) === k).slice(0, 3).forEach((t) => { t.top = k; }); }
+
+      /* the evening wrap-up on most recent days */
+      s.seen.sampleWrapups = [];
+      for (let i = 12; i >= 1; i--) { if (r() < 0.65) { const k = U.addDays(T, -i); s.wrapups[k] = at(k, 22 * 60 + Math.floor(r() * 50)); s.seen.sampleWrapups.push(k); } }
+
+      /* flashcards, with three weeks of reviews behind them */
+      const deck = (id, name, pairs) => { s.decks.push({ id, name, createdAt: ago(25), sample: true }); pairs.forEach(([f, b], i) => s.cards.push({ id: `${id}-${i}`, deckId: id, front: f, back: b, createdAt: ago(25, 600 + i), reps: 0, ease: 2.5, interval: 0, due: null, sample: true, _keepNew: i >= pairs.length - 3 })); };
+      deck('dk-dbms', 'DBMS', [
+        ['What is a primary key?', 'A column, or set of columns, that uniquely identifies each row'], ['What is a foreign key?', 'A column that refers to the primary key of another table'],
+        ['1NF', 'Every column holds atomic values; no repeating groups'], ['2NF', '1NF, and no column depends on only part of a composite key'],
+        ['3NF', '2NF, and no non-key column depends on another non-key column'], ['BCNF', 'For every dependency X → Y, X is a superkey'],
+        ['What does ACID stand for?', 'Atomicity, Consistency, Isolation, Durability'], ['What is a dirty read?', 'Reading a change another transaction has not committed yet'],
+        ['INNER JOIN vs LEFT JOIN', 'Inner keeps only matching rows; left keeps every row of the left table'], ['What is an index for?', 'Finding rows fast without scanning the whole table, at the cost of slower writes'],
+        ['What is a view?', 'A saved query you can select from like a table'], ['What does GROUP BY do?', 'Collects rows with the same values so aggregates (COUNT, SUM) run per group'],
+      ]);
+      deck('dk-os', 'Operating systems', [
+        ['Process vs thread', 'A process has its own memory; threads share their process’s memory'], ['What is a deadlock?', 'Processes each waiting on a resource another holds, so none can go on'],
+        ['The four deadlock conditions', 'Mutual exclusion, hold and wait, no preemption, circular wait'], ['What is thrashing?', 'Spending more time swapping pages than doing work'],
+        ['Round robin scheduling', 'Each process gets a fixed time slice in turn'], ['What is a semaphore?', 'A counter used to control access to a shared resource'],
+        ['Paging', 'Memory split into fixed-size pages mapped to frames'], ['What is a context switch?', 'Saving one process’s state and loading another’s'],
+        ['What does the TLB cache?', 'Recent virtual-to-physical page translations'], ['Starvation', 'A process waits forever because others keep getting chosen first'],
+      ]);
+      deck('dk-es', 'Spanish basics', [
+        ['hola', 'hello'], ['gracias', 'thank you'], ['por favor', 'please'], ['¿Dónde está…?', 'Where is…?'], ['la biblioteca', 'the library'],
+        ['mañana', 'tomorrow; morning'], ['tengo hambre', 'I’m hungry'], ['¿Cuánto cuesta?', 'How much does it cost?'], ['despacio', 'slowly'], ['entiendo', 'I understand'],
+      ]);
+      for (let i = 21; i >= 1; i--) {
+        const k = U.addDays(T, -i);
+        if (r() < 0.2) continue;
+        let m = 20 * 60 + Math.floor(r() * 90);
+        for (const c of s.cards) {
+          if (c._keepNew || (c.deckId === 'dk-es' && i > 12)) continue;
+          if (c.due && c.due > k) continue;
+          const x = r(), g = x < 0.1 ? 0 : x < 0.2 ? 1 : x < 0.86 ? 2 : 3;
+          const n = O.cards.next(c, g);
+          Object.assign(c, n, { due: U.addDays(k, n.interval), lastReview: at(k, m), lapses: (c.lapses || 0) + (g === 0 && c.reps ? 1 : 0) });
+          s.reviews.push({ id: U.uid(), cardId: c.id, at: at(k, m), grade: g, sample: true });
+          m += 1;
+        }
+      }
+      s.cards.forEach((c) => { delete c._keepNew; });
       s.seen.onboarding = true;
       s.hasSample = true;
     });
@@ -204,6 +256,12 @@
       x.money.tx = x.money.tx.filter((t) => !t.sample);
       x.money.subs = x.money.subs.filter((t) => !t.sample);
       x.countdowns = x.countdowns.filter((t) => !t.sample);
+      const deckIds = new Set(x.decks.filter((d) => d.sample).map((d) => d.id));
+      x.decks = x.decks.filter((d) => !d.sample);
+      x.cards = x.cards.filter((c) => !c.sample && !deckIds.has(c.deckId));
+      x.reviews = x.reviews.filter((rv) => !rv.sample);
+      for (const k of (x.seen.sampleWrapups || [])) delete x.wrapups[k];
+      x.seen.sampleWrapups = [];
       for (const k of Object.keys(x.journal)) if (x.journal[k].sample) delete x.journal[k];
       x.hasSample = false;
     };

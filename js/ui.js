@@ -92,6 +92,7 @@
       ['Today', '#/today', 'today'], ['Tasks', '#/tasks', 'tasks'], ['Habits', '#/habits', 'habits'], ['Focus', '#/focus', 'focus'],
       ['Planner', '#/planner', 'planner'], ['Notes', '#/notes', 'notes'], ['Journal', '#/journal', 'journal'], ['Stats', '#/stats', 'stats'], ['Settings', '#/settings', 'settings'],
       ['Calendar', '#/calendar', 'calendar'], ['Goals', '#/goals', 'goals'], ['Money', '#/money', 'money'], ['Progress', '#/progress', 'progress'],
+      ['Study', '#/study', 'study'], ['Review', '#/review', 'review'],
     ].map(([n, h, i]) => ({ group: 'Go to', label: n, icon: i, run: () => O.go(h) }));
     const actions = [
       { label: 'New task', icon: 'plus', run: () => O.newTask() },
@@ -108,6 +109,11 @@
       { label: 'Add a subscription', icon: 'money', run: () => { O.go('#/money'); setTimeout(() => O.subDialog(), 50); } },
       { label: 'Play focus sounds', icon: 'sound', run: () => { const k = O.store.state.settings.ambient; O.ambient.playing() ? O.ambient.stop() : O.ambient.play(k && k !== 'off' ? k : 'rain'); } },
       { label: 'See level and achievements', icon: 'progress', run: () => O.go('#/progress') },
+      { label: 'Review flashcards', icon: 'study', run: () => O.go('#/study/review/all') },
+      { label: 'New flashcard', icon: 'study', run: () => O.cardDialog() },
+      { label: 'Wrap up the day', icon: 'review', run: () => O.go('#/review') },
+      { label: 'Weekly review', icon: 'review', run: () => O.go('#/review/week') },
+      { label: 'Customize the Today page', icon: 'layout', run: () => { O.go('#/today'); setTimeout(() => O.customizeToday(), 60); } },
     ].map((a) => ({ group: 'Actions', ...a }));
     const tasks = st.tasks.filter((x) => !x.done).map((x) => ({ group: 'Tasks', label: x.title, hint: x.due ? U.relDay(x.due) : D.listName(x.list), icon: 'tasks', run: () => O.go('#/tasks/' + x.id) }));
     const notes = st.notes.map((n) => ({ group: 'Notes', label: n.title || 'Untitled note', hint: U.short(U.keyOf(n.updatedAt)), icon: 'notes', run: () => O.go('#/notes/' + n.id) }));
@@ -160,7 +166,8 @@
     ['Ctrl K', 'Search and run any command'], ['/', 'Search'], ['N', 'New task'], ['Space', 'Start or pause the timer (on Focus)'],
     ['G then T', 'Go to Today'], ['G then K', 'Go to Tasks'], ['G then H', 'Go to Habits'], ['G then F', 'Go to Focus'],
     ['G then P', 'Go to Planner'], ['G then N', 'Go to Notes'], ['G then J', 'Go to Journal'], ['G then S', 'Go to Stats'],
-    ['G then C', 'Go to Calendar'], ['G then G', 'Go to Goals'], ['G then M', 'Go to Money'], ['G then L', 'Go to Progress (level)'], ['?', 'Show this list'],
+    ['G then C', 'Go to Calendar'], ['G then G', 'Go to Goals'], ['G then M', 'Go to Money'], ['G then L', 'Go to Progress (level)'],
+    ['G then D', 'Go to Study (decks)'], ['G then R', 'Go to Review'], ['Space, then 1 to 4', 'Show a flashcard, then grade it'], ['?', 'Show this list'],
   ];
   O.showShortcuts = () => O.dialog({
     title: 'Keyboard shortcuts', cls: 'small',
@@ -174,7 +181,7 @@
     const k = e.key.toLowerCase();
     if (gPending && Date.now() - gPending < 1200) {
       gPending = 0;
-      const map = { t: 'today', k: 'tasks', h: 'habits', f: 'focus', p: 'planner', n: 'notes', j: 'journal', s: 'stats', c: 'calendar', g: 'goals', m: 'money', l: 'progress' };
+      const map = { t: 'today', k: 'tasks', h: 'habits', f: 'focus', p: 'planner', n: 'notes', j: 'journal', s: 'stats', c: 'calendar', g: 'goals', m: 'money', l: 'progress', d: 'study', r: 'review' };
       if (map[k]) { e.preventDefault(); O.go('#/' + map[k]); }
       return;
     }
@@ -246,12 +253,29 @@
   };
   matchMedia('(prefers-color-scheme: dark)').addEventListener?.('change', () => O.applyTheme());
 
-  O.exportData = () => {
+  O.downloadFile = (name, text, type) => {
+    const blob = new Blob([text], { type });
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob); a.download = name;
+    document.body.appendChild(a); a.click(); a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+  };
+  O.exportData = async () => {
     const data = JSON.stringify(O.store.state, null, 2);
+    const name = `orbit-backup-${U.today()}.json`;
+    try {
+      const file = new File([data], name, { type: 'application/json' });
+      if (U.isPhone() && navigator.canShare && navigator.canShare({ files: [file] })) {
+        await navigator.share({ files: [file], title: 'Orbit backup' });
+        O.store.update((s) => { s.lastBackup = Date.now(); }, { silent: true });
+        O.toast('Backup shared.');
+        return;
+      }
+    } catch (e) { if (e && e.name === 'AbortError') return; }
     const blob = new Blob([data], { type: 'application/json' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `orbit-backup-${U.today()}.json`;
+    a.download = name;
     document.body.appendChild(a); a.click(); a.remove();
     setTimeout(() => URL.revokeObjectURL(a.href), 2000);
     O.store.update((s) => { s.lastBackup = Date.now(); }, { silent: true });

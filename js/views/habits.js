@@ -22,6 +22,10 @@
         <div class="field"><label for="ht">Times a day</label><input id="ht" class="input" type="number" min="1" max="50" value="${h.target || 1}"></div>
         <div class="field"><label for="hu">Counted in</label><input id="hu" class="input" value="${esc(h.unit || '')}" placeholder="e.g. glasses" maxlength="20"></div>
       </div>
+      <div class="row2">
+        <div class="field"><label for="hr">Remind me at</label><input id="hr" class="input" type="time" value="${h.remindAt || ''}"></div>
+        <div class="field"><span class="label">&nbsp;</span><span class="hint" style="align-self:center">A chime while Orbit is open, if it isn’t done yet.</span></div>
+      </div>
       <p class="hint">A habit with more than one a day is done when its count reaches the target.</p>
       ${O.store.state.goals.some((g) => !g.done) ? `<div class="field"><label for="hg">Builds toward a goal</label><select id="hg" class="input"><option value="">No goal</option>${O.store.state.goals.filter((g) => !g.done).map((g) => `<option value="${g.id}" ${g.id === h.goalId ? 'selected' : ''}>${esc(g.title)}</option>`).join('')}</select></div>` : ''}`;
     let ok = false;
@@ -41,12 +45,12 @@
       const name = b.querySelector('#hn').value.trim();
       if (!name) { b.querySelector('#hn').focus(); return false; }
       const days = b.querySelector('[data-often="days"]').getAttribute('aria-pressed') === 'true' ? U.$$('#hdays input:checked', b).map((x) => +x.value) : [];
-      const target = U.clamp(parseInt(b.querySelector('#ht').value, 10) || 1, 1, 50), unit = b.querySelector('#hu').value.trim();
+      const target = U.clamp(parseInt(b.querySelector('#ht').value, 10) || 1, 1, 50), unit = b.querySelector('#hu').value.trim(), remindAt = b.querySelector('#hr').value || null;
       let nid = id;
       const gsel = b.querySelector('#hg'), goalId = gsel ? gsel.value || null : h.goalId || null;
       O.store.update((s) => {
-        if (id) Object.assign(D.habit(id), { name, days, target, unit, goalId });
-        else { nid = U.uid(); s.habits.push({ id: nid, name, days, target, unit, goalId, createdAt: Date.now(), archived: false }); }
+        if (id) Object.assign(D.habit(id), { name, days, target, unit, goalId, remindAt });
+        else { nid = U.uid(); s.habits.push({ id: nid, name, days, target, unit, goalId, remindAt, createdAt: Date.now(), archived: false }); }
       });
       mem.selected = nid;
       if (!id) O.toast(`Added “${name}”. Tick it off today to start a streak.`);

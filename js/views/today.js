@@ -8,7 +8,7 @@
   const NS = 'http://www.w3.org/2000/svg';
 
   /* ------------------------------------------------- shared row renderers */
-  O.taskRow = (t, { today = U.today(), selected = false, showList = true } = {}) => {
+  O.taskRow = (t, { today = U.today(), selected = false, showList = true, star = false } = {}) => {
     const bits = [];
     if (t.due) {
       if (t.due < today && !t.done) bits.push(`<span class="late">${esc(U.relDay(t.due))}</span>`);
@@ -25,7 +25,7 @@
       <button type="button" class="open-btn" data-act="open-task" data-id="${t.id}" aria-label="Open ${esc(t.title)}"></button>
       <button type="button" class="check" role="checkbox" aria-checked="${t.done}" data-act="toggle-task" data-id="${t.id}" aria-label="${t.done ? 'Mark not done' : 'Mark done'}: ${esc(t.title)}">${O.icon('check')}</button>
       <div class="main"><span class="t">${esc(t.title)}</span>${bits.length ? `<span class="s">${bits.join(' · ')}</span>` : ''}</div>
-      ${prio ? `<div class="side">${prio}</div>` : ''}
+      ${prio || star ? `<div class="side">${prio}${star ? `<button type="button" class="star-btn" data-top="${t.id}" aria-pressed="${t.top === today}" aria-label="${t.top === today ? 'Remove from' : 'Add to'} today’s top 3: ${esc(t.title)}" title="${t.top === today ? 'In today’s top 3' : 'Add to today’s top 3'}">${O.icon(t.top === today ? 'starf' : 'star', 16)}</button>` : ''}</div>` : ''}
     </div>`;
   };
   O.habitCtl = (h, k) => {
@@ -132,71 +132,110 @@
   };
 
   /* ------------------------------------------------------------------ view */
+  /* ---------------------------------------------------------- customize Today */
+  const DEFAULT_ORDER = ['tiles', 'day', 'tasks', 'habits', 'goals', 'money', 'study', 'journal', 'notes'];
+  O.todayOrder = () => { const o = (O.store.state.settings.todayOrder || []).filter((k) => DEFAULT_ORDER.includes(k)); return [...o, ...DEFAULT_ORDER.filter((k) => !o.includes(k))]; };
+  O.customizeToday = () => {
+    let order = O.todayOrder(), hidden = new Set(O.store.state.settings.todayHidden || []);
+    const names = O.TODAY_SECTIONS || {};
+    const dlg = O.dialog({ title: 'Customize Today', cls: 'small', body: '<p class="lead">Choose what shows on Today, and in what order.</p><div class="cust-list" id="cust"></div>',
+      actions: [{ label: 'Reset', left: true, onClick: () => { order = DEFAULT_ORDER.slice(); hidden = new Set(); draw(); return false; } }, { label: 'Cancel' }, { label: 'Save', primary: true, onClick: () => { O.store.update((s) => { s.settings.todayOrder = order; s.settings.todayHidden = [...hidden]; }); O.route(); } }] });
+    const box = dlg.body.querySelector('#cust');
+    function draw() {
+      box.innerHTML = order.map((k, i) => `<div class="cust-row"><label><input type="checkbox" class="switch" data-show="${k}" ${hidden.has(k) ? '' : 'checked'}><span>${esc((names[k] || {}).name || k)}</span></label><span class="cust-btns"><button type="button" class="icon-btn" data-mv="${i}" data-d="-1" ${i === 0 ? 'disabled' : ''} aria-label="Move up">${O.icon('up', 16)}</button><button type="button" class="icon-btn" data-mv="${i}" data-d="1" ${i === order.length - 1 ? 'disabled' : ''} aria-label="Move down">${O.icon('down', 16)}</button></span></div>`).join('');
+    }
+    draw();
+    box.addEventListener('change', (e) => { const k = e.target.dataset.show; if (k) { if (e.target.checked) hidden.delete(k); else hidden.add(k); } });
+    box.addEventListener('click', (e) => { const b = e.target.closest('[data-mv]'); if (!b) return; const i = +b.dataset.mv, j = i + +b.dataset.d; [order[i], order[j]] = [order[j], order[i]]; draw(); const n = box.querySelector(`[data-mv="${j}"][data-d="${b.dataset.d}"]`) || box.querySelector(`[data-mv="${j}"]`); if (n && !n.disabled) n.focus(); });
+  };
+  /* a different journal prompt each day */
+  const PROMPTS = ['One line about today. What went well, what didn’t?', 'What made you smile today?', 'What did you learn today?', 'What drained your energy today?', 'What are you grateful for right now?', 'What would make tomorrow great?', 'Who helped you today, or who did you help?', 'What did you put off, and why?', 'What surprised you today?', 'If today had a title, what would it be?', 'What will you do differently tomorrow?', 'Which moment would you replay?'];
+  O.journalPrompt = (k = U.today()) => PROMPTS[Math.floor(U.parseKey(k).getTime() / 864e5) % PROMPTS.length];
+
   /* ------------------------------------------------------------------ view */
   O.views.today = {
     title: 'Today',
     mount(root) {
-      root.innerHTML = `
-        <section class="hero" aria-label="Today at a glance">
-          <div class="hero-main">
-            <div id="greet"></div>
-            <div class="hero-chips" id="chips"></div>
-          </div>
-          <a class="hero-score" href="#/progress" id="score" aria-label="Today's XP and your level"></a>
-        </section>
-        <div class="grid tiles" id="tiles"></div>
-        <div class="grid">
+      /* every block below the hero is a section you can hide or move (Customize, top right) */
+      const SECTIONS = {
+        tiles: { name: 'Counts', wide: true, html: () => `<div class="grid tiles" id="tiles"></div>` },
+        day: { name: 'Your day and the focus timer', wide: true, html: () => `<div class="grid">
           <section class="panel s9" aria-labelledby="dayh">
             <div class="panel-head"><h2 id="dayh">Your day</h2><span class="meta" id="daymeta"></span><div class="end"><div class="strip-legend"><span><i class="plan"></i>Planned</span><span><i class="focus"></i>Focus</span><span><i class="task"></i>Task done</span></div><a class="card-link" href="#/planner">Planner${O.icon('right')}</a></div></div>
             <div class="daystrip" id="strip"></div>
           </section>
-          <section class="panel s3 mini-timer" aria-labelledby="ftitle" id="mini"></section>
-        </div>
-        <div class="grid">
-          <section class="panel s6" aria-labelledby="tt">
+          <section class="panel s3 mini-timer" aria-labelledby="ftitle" id="mini"></section></div>` },
+        tasks: { name: 'Tasks and top 3', html: () => `<section class="panel" aria-labelledby="tt">
             <div class="panel-head"><h2 id="tt">Tasks</h2><span class="count-chip" id="tcount"></span><div class="end"><a class="card-link" href="#/tasks">All tasks${O.icon('right')}</a></div></div>
+            <div id="top3"></div>
             <form class="qa" id="qa" autocomplete="off">
               <div class="qa-field">${O.icon('plus')}<input name="q" placeholder="Add a task, e.g. Submit essay tomorrow 5pm !high" aria-label="Add a task"></div>
               <div class="qa-chips" aria-live="polite"></div>
             </form>
             <div class="rcards" id="tlist" style="margin-top:12px"></div>
             <div class="panel-foot" id="tfoot"></div>
-          </section>
-          <section class="panel s6" aria-labelledby="hh">
+          </section>` },
+        habits: { name: 'Habits', html: () => `<section class="panel" aria-labelledby="hh">
             <div class="panel-head"><h2 id="hh">Habits</h2><span class="count-chip" id="hcount"></span><div class="end"><a class="card-link" href="#/habits">All habits${O.icon('right')}</a></div></div>
             <div class="rcards" id="hlist"></div>
             <div class="panel-foot" id="hfoot"></div>
-          </section>
-        </div>
-        <div class="grid">
-          <section class="panel s6" aria-labelledby="gh">
+          </section>` },
+        goals: { name: 'Goals', html: () => `<section class="panel" aria-labelledby="gh">
             <div class="panel-head"><h2 id="gh">Goals</h2><span class="meta" id="gmeta"></span><div class="end"><a class="card-link" href="#/goals">All goals${O.icon('right')}</a></div></div>
             <div class="goal-list" id="glist"></div>
-          </section>
-          <section class="panel s6" aria-labelledby="mh">
+          </section>` },
+        money: { name: 'Money', html: () => `<section class="panel" aria-labelledby="mh">
             <div class="panel-head"><h2 id="mh">Money this month</h2><div class="end"><a class="card-link" href="#/money">Money${O.icon('right')}</a></div></div>
             <div id="mtop"></div>
             <form class="qa" id="mqa" autocomplete="off" style="margin-top:12px"><div class="qa-field" style="height:42px">${O.icon('money')}<input placeholder="Log spending: 120 coffee" aria-label="Log spending"></div><div class="qa-chips" aria-live="polite"></div></form>
             <div class="tx-list compact" id="mlist"></div>
-          </section>
-        </div>
-        <div class="grid">
-          <section class="panel s6" aria-labelledby="jh">
+          </section>` },
+        study: { name: 'Flashcards', html: () => `<section class="panel" aria-labelledby="sth">
+            <div class="panel-head"><h2 id="sth">Flashcards</h2><span class="count-chip" id="scount"></span><div class="end"><a class="card-link" href="#/study">Study${O.icon('right')}</a></div></div>
+            <div id="slist"></div>
+          </section>` },
+        journal: { name: 'Mood and journal', html: () => `<section class="panel" aria-labelledby="jh">
             <div class="panel-head"><h2 id="jh">How is today going?</h2><div class="end"><span class="saved-stamp" id="jstamp"></span><a class="card-link" href="#/journal">Journal${O.icon('right')}</a></div></div>
             <div class="moods" id="moods" role="group" aria-label="Mood today"></div>
-            <textarea class="input journal-text" id="jtext" placeholder="One line about today. What went well, what didn’t?" aria-label="Journal entry for today"></textarea>
-          </section>
-          <section class="panel s6" aria-labelledby="nh">
+            <textarea class="input journal-text" id="jtext" placeholder="${esc(O.journalPrompt())}" aria-label="Journal entry for today"></textarea>
+          </section>` },
+        notes: { name: 'Notes', html: () => `<section class="panel" aria-labelledby="nh">
             <div class="panel-head"><h2 id="nh">Notes</h2><div class="end"><a class="card-link" href="#/notes">All notes${O.icon('right')}</a></div></div>
             <div class="rcards" id="nlist"></div>
             <div class="panel-foot"><span id="nmeta"></span><a class="card-link" href="#/notes/new">New note${O.icon('plus')}</a></div>
-          </section>
-        </div>`;
+          </section>` },
+      };
+      O.TODAY_SECTIONS = SECTIONS;
+      const st0 = O.store.state.settings, hidden = new Set(st0.todayHidden || []);
+      const order = O.todayOrder();
+      let html = `
+        <section class="hero" aria-label="Today at a glance">
+          <button type="button" class="icon-btn hero-custom" data-customize aria-label="Customize Today" title="Customize Today">${O.icon('layout', 18)}</button>
+          <div class="hero-main">
+            <div id="greet"></div>
+            <div class="hero-chips" id="chips"></div>
+          </div>
+          <a class="hero-score" href="#/progress" id="score" aria-label="Today's XP and your level"></a>
+        </section>`;
+      let group = [];
+      const flush = () => {
+        if (!group.length) return;
+        html += `<div class="today-cols"><div class="today-col">${group.map((k, i) => (i % 2 === 0 ? `<div class="tc" style="order:${i}">${SECTIONS[k].html()}</div>` : '')).join('')}</div><div class="today-col">${group.map((k, i) => (i % 2 === 1 ? `<div class="tc" style="order:${i}">${SECTIONS[k].html()}</div>` : '')).join('')}</div></div>`;
+        group = [];
+      };
+      for (const k of order) {
+        if (hidden.has(k) || !SECTIONS[k]) continue;
+        if (SECTIONS[k].wide) { flush(); html += SECTIONS[k].html(); } else group.push(k);
+      }
+      flush();
+      if (order.every((k) => hidden.has(k))) html += `<div class="empty" style="margin-top:16px">Every section is hidden.<button type="button" class="btn sm" data-customize>${O.icon('layout', 14)}Customize Today</button></div>`;
+      root.innerHTML = html;
 
       const $ = (id) => root.querySelector('#' + id);
+      const has = (id) => !!root.querySelector('#' + id);
       const M = O.money;
-      const qa = $('qa'), qin = qa.querySelector('input'), chips = qa.querySelector('.qa-chips');
-      const mqa = $('mqa'), min = mqa.querySelector('input'), mchips = mqa.querySelector('.qa-chips');
+      const qa = $('qa'), qin = qa && qa.querySelector('input'), chips = qa && qa.querySelector('.qa-chips');
+      const mqa = $('mqa'), min = mqa && mqa.querySelector('input'), mchips = mqa && mqa.querySelector('.qa-chips');
       let first = true;
 
       function greet() {
@@ -204,6 +243,9 @@
         $('greet').innerHTML = `<h1>${U.greeting()}${name ? ', ' + esc(name) : ''}.</h1><p class="sub">${esc(U.fmtDate(U.today()))} · ${esc(D.todayFact())}</p>`;
         // the chips: weather, the next countdown, the closest badge
         const out = [];
+        const today = U.today();
+        if (s.wrapups[today]) out.push(`<a class="chip" href="#/review">${O.icon('check', 16)}<span>Day closed at ${U.timeOf(s.wrapups[today])}</span></a>`);
+        else if (U.nowMins() >= 19 * 60) out.push(`<a class="chip hot" href="#/review">${O.icon('review', 16)}<span>Wrap up your day</span><b>2 min</b></a>`);
         const loc = s.settings.location, w = O.weather.cached();
         if (loc && w) { const d = O.weather.describe(w.code); out.push(`<a class="chip" href="#/settings" title="${esc(loc.name)}">${O.icon(d.icon, 16)}<span>${esc(O.weather.line(w))}</span><span class="chip-sub">${esc(loc.name)}</span></a>`); }
         else if (loc) out.push(`<span class="chip">${O.icon('w_cloud', 16)}<span>Getting the weather for ${esc(loc.name)}…</span></span>`);
@@ -242,14 +284,26 @@
       }
       function tasks() {
         const today = U.today();
+        const top = O.top3(today).sort((a, b) => (a.done - b.done) || D.sortTasks(a, b));
         const open = D.openToday(today), done = D.doneOn(today).sort((a, b) => b.doneAt - a.doneAt);
-        const shown = open.slice(0, 5);
+        const rest = open.filter((t) => t.top !== today);
+        const shown = rest.slice(0, 5);
         const room = Math.max(0, 5 - shown.length);
-        const rows = shown.concat(done.slice(0, Math.min(room, 2)));
+        const rows = shown.concat(done.filter((t) => t.top !== today).slice(0, Math.min(room, 2)));
         $('tcount').textContent = open.length;
         $('tcount').setAttribute('aria-label', `${open.length} open`);
-        O.fill($('tlist'), rows.length ? rows.map((t) => O.taskRow(t, { today })).join('') : `<div class="empty">${O.store.state.tasks.some((t) => !t.done) ? 'Nothing due today. Add one above, or give a task from your list today’s date.' : 'Nothing due today. Type a task above and press Enter.'}</div>`);
-        $('tfoot').innerHTML = `<span>${open.length > shown.length ? `${open.length - shown.length} more open` : `${done.length} done today`}</span>${open.length > shown.length ? `<a class="card-link" href="#/tasks">View all ${open.length}${O.icon('right')}</a>` : ''}`;
+        const topDone = top.filter((t) => t.done).length;
+        $('top3').innerHTML = top.length ? `<div class="top3 ${topDone === top.length ? 'all-done' : ''}"><div class="top3-head">${O.icon('starf', 15)}<b>Top ${top.length} today</b><span class="num">${topDone}/${top.length} done${topDone === top.length ? ` · +${O.xp.RULES.top3} XP` : ''}</span></div>${top.map((t) => O.taskRow(t, { today, star: true })).join('')}</div>`
+          : open.length ? `<div class="top3 hint-top">${O.icon('star', 15)}<span>Star up to three tasks that matter most today. Finish all three for ${O.xp.RULES.top3} XP.</span></div>` : '';
+        O.fill($('tlist'), rows.length ? rows.map((t) => O.taskRow(t, { today, star: !t.done })).join('') : top.length ? '' : `<div class="empty">${O.store.state.tasks.some((t) => !t.done) ? 'Nothing due today. Add one above, or give a task from your list today’s date.' : 'Nothing due today. Type a task above and press Enter.'}</div>`);
+        $('tfoot').innerHTML = `<span>${rest.length > shown.length ? `${rest.length - shown.length} more open` : `${done.length} done today`}</span>${rest.length > shown.length ? `<a class="card-link" href="#/tasks">View all ${open.length}${O.icon('right')}</a>` : ''}`;
+      }
+      function study() {
+        const s = O.store.state, due = O.cards.dueCount();
+        $('scount').textContent = due; $('scount').hidden = !s.decks.length;
+        $('slist').innerHTML = s.decks.length ? `<div class="rcards">${s.decks.slice(0, 4).map((d) => { const n = O.cards.dueCount(d.id); return `<a class="rcard link" href="#/study/deck/${d.id}"><div class="main"><span class="t">${esc(d.name)}</span><span class="s">${U.plural(O.cards.inDeck(d.id).length, 'card')}</span></div><div class="side">${n ? `<span class="pill acc">${n} due</span>` : '<span>All caught up</span>'}</div></a>`; }).join('')}</div>
+          <div class="panel-foot"><span>${due ? `${U.plural(due, 'card')} waiting, about ${Math.max(1, Math.round(due * 0.15))} min` : 'Nothing due. Nice.'}</span>${due ? `<a class="btn sm primary" href="#/study/review/all">${O.icon('play', 13)}Review</a>` : ''}</div>`
+          : `<div class="empty">Flashcards that come back right before you’d forget them.<a class="btn sm" href="#/study">${O.icon('plus')}Make a deck</a></div>`;
       }
       function habits() {
         const today = U.today();
@@ -316,12 +370,19 @@
             ${t.status() !== 'idle' ? `<button type="button" class="btn sm ghost" data-act="timer-reset">${O.icon('reset', 14)}Reset</button>` : snd && snd !== 'off' ? `<span class="hint">${O.icon('sound', 12)} ${esc(O.ambient.KINDS[snd])}</span>` : ''}
           </div>`;
       }
-      const all = () => { greet(); score(); tiles(); tasks(); habits(); goals(); money(); journal(); notes(); strip(); mini(); O.fx.counts(root); O.fx.grow(root, first); first = false; };
+      const all = () => {
+        greet(); score();
+        if (has('tiles')) tiles(); if (has('tlist')) tasks(); if (has('hlist')) habits(); if (has('glist')) goals(); if (has('mtop')) money();
+        if (has('slist')) study(); if (has('moods')) journal(); if (has('nlist')) notes(); if (has('strip')) strip(); if (has('mini')) mini();
+        O.fx.counts(root); O.fx.grow(root, first); first = false;
+      };
       all();
       O.weather.get().then((w) => { if (w && root.isConnected) greet(); });
 
       /* events */
       root.addEventListener('click', (e) => {
+        const tp = e.target.closest('[data-top]'); if (tp) { O.toggleTop(tp.dataset.top); return; }
+        if (e.target.closest('[data-customize]')) { O.customizeToday(); return; }
         if (O.handleCommon(e)) return;
         const b = e.target.closest('[data-act], [data-mood]');
         if (!b) return;
@@ -335,17 +396,17 @@
         if (act === 'timer-toggle') O.timer.toggle();
         if (act === 'timer-reset') O.timer.reset();
       });
-      qin.addEventListener('input', () => { const p = D.parseQuick(qin.value); chips.innerHTML = qin.value.trim() ? D.quickChips(p).map((c) => `<span class="pill">${esc(c)}</span>`).join('') : ''; });
-      qa.addEventListener('submit', (e) => { e.preventDefault(); if (O.quickAddTask(qin.value, { due: U.today() })) { qin.value = ''; chips.innerHTML = ''; } });
-      min.addEventListener('input', () => { const p = M.parse(min.value); mchips.innerHTML = min.value.trim() && p.amount ? [M.fmt(p.amount), p.type === 'income' ? 'Received' : M.catName(p.category), p.note ? `“${p.note}”` : ''].filter(Boolean).map((c) => `<span class="pill">${esc(c)}</span>`).join('') : ''; });
-      mqa.addEventListener('submit', (e) => { e.preventDefault(); if (O.quickMoney(min.value)) { min.value = ''; mchips.innerHTML = ''; } });
+      if (qa) qin.addEventListener('input', () => { const p = D.parseQuick(qin.value); chips.innerHTML = qin.value.trim() ? D.quickChips(p).map((c) => `<span class="pill">${esc(c)}</span>`).join('') : ''; });
+      if (qa) qa.addEventListener('submit', (e) => { e.preventDefault(); if (O.quickAddTask(qin.value, { due: U.today() })) { qin.value = ''; chips.innerHTML = ''; } });
+      if (mqa) min.addEventListener('input', () => { const p = M.parse(min.value); mchips.innerHTML = min.value.trim() && p.amount ? [M.fmt(p.amount), p.type === 'income' ? 'Received' : M.catName(p.category), p.note ? `“${p.note}”` : ''].filter(Boolean).map((c) => `<span class="pill">${esc(c)}</span>`).join('') : ''; });
+      if (mqa) mqa.addEventListener('submit', (e) => { e.preventDefault(); if (O.quickMoney(min.value)) { min.value = ''; mchips.innerHTML = ''; } });
       const saveJ = U.debounce(() => {
+        if (!has('jtext')) return;
         O.store.update((s) => { const k = U.today(); const cur = s.journal[k] || { mood: 0, text: '' }; cur.text = $('jtext').value; delete cur.sample; if (!cur.text && !cur.mood) delete s.journal[k]; else s.journal[k] = cur; }, { silent: true });
         stamp();
       }, 500);
-      function stamp() { $('jstamp').textContent = 'Saved ' + U.hm(U.nowMins()); }
-      $('jtext').addEventListener('input', saveJ);
-      $('jtext').addEventListener('blur', () => saveJ.flush());
+      function stamp() { if (has('jstamp')) $('jstamp').textContent = 'Saved ' + U.hm(U.nowMins()); }
+      if (has('jtext')) { $('jtext').addEventListener('input', saveJ); $('jtext').addEventListener('blur', () => saveJ.flush()); }
 
       const offTimer = O.timer.on((left) => {
         const el = $('mt-time'); if (!el) return;
@@ -355,10 +416,10 @@
       });
       let lastStatus = O.timer.status() + O.timer.mode();
       const offTimer2 = O.timer.on(() => { const s = O.timer.status() + O.timer.mode(); if (s !== lastStatus) { lastStatus = s; mini(); } });
-      const offW = O.watchWidth($('strip'), strip);
+      const offW = has('strip') ? O.watchWidth($('strip'), strip) : () => {};
       return {
         refresh: all,
-        tick() { greet(); tiles(); strip(); },
+        tick() { greet(); if (has('tiles')) tiles(); if (has('strip')) strip(); },
         destroy() { offTimer(); offTimer2(); offW(); saveJ.flush(); },
       };
     },

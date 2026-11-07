@@ -39,6 +39,7 @@
         const every = s.longEvery || 4, inSet = (ts.cycle || 0) % every;
         O.fill($('main'), `
           <div class="seg" role="group" aria-label="Timer mode">${Object.entries(t.MODES).map(([k, v]) => `<button type="button" data-mode="${k}" data-k="m-${k}" aria-pressed="${t.mode() === k}">${v}</button>`).join('')}</div>
+          ${t.mode() === 'focus' && idle ? `<div class="presets" role="group" aria-label="Focus length">${[15, 25, 50, 90].map((n) => `<button type="button" class="fchip" data-len="${n}" data-k="len-${n}" aria-pressed="${s.focusMin === n}">${n} min</button>`).join('')}</div>` : ''}
           <div class="ring-wrap">
             <svg viewBox="0 0 100 100" aria-hidden="true"><circle class="track" cx="50" cy="50" r="${R}" fill="none" stroke-width="2.4"/><circle class="prog" id="prog" cx="50" cy="50" r="${R}" fill="none" stroke-width="2.4" stroke-linecap="round" stroke-dasharray="${C.toFixed(2)}" stroke-dashoffset="${(C * (1 - t.progress())).toFixed(2)}"/></svg>
             <div class="ring-center"><div class="timer-time num" id="time" role="timer" aria-live="off">${t.fmt(t.left())}</div><div class="what">${t.MODES[t.mode()]} · ${Math.round(t.lengthOf(t.mode()) / 60)} min</div></div>
@@ -81,6 +82,8 @@
       all();
 
       root.addEventListener('click', (e) => {
+        const ln = e.target.closest('[data-len]');
+        if (ln) { O.store.update((st) => { st.settings.focusMin = +ln.dataset.len; st.timer.left = null; }); t.emit(); return; }
         const m = e.target.closest('[data-mode]');
         if (m) { if (m.dataset.mode !== t.mode()) t.setMode(m.dataset.mode); return; }
         const b = e.target.closest('[data-t]');

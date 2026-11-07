@@ -86,6 +86,7 @@
             <span class="month-label" id="mlabel"></span>
             <button type="button" class="btn icon" data-m="1" aria-label="Next month">${O.icon('right')}</button>
             <button type="button" class="btn" data-budgets>Budgets</button>
+            <button type="button" class="btn icon" data-csv aria-label="Export entries as CSV" title="Export as CSV">${O.icon('download', 16)}</button>
           </div></header>
         <form class="qa money-qa" id="qa" autocomplete="off">
           <div class="qa-field">${O.icon('plus')}<input name="q" placeholder="Log money: 250 lunch, 1200 books yesterday, +5000 stipend" aria-label="Log spending or income"></div>
@@ -177,6 +178,13 @@
       root.addEventListener('click', (e) => {
         const m = e.target.closest('[data-m]'); if (m) { mem.month = shiftMonth(mem.month, +m.dataset.m); draw(); return; }
         if (e.target.closest('[data-budgets]')) { O.budgetDialog(); return; }
+        if (e.target.closest('[data-csv]')) {
+          const q = (v) => `"${String(v).replace(/"/g, '""')}"`;
+          const rows = O.store.state.money.tx.slice().sort((a, b) => (a.date < b.date ? -1 : 1)).map((t) => [t.date, t.type === 'income' ? 'received' : 'spent', M.catName(t.category), t.type === 'income' ? t.amount : -t.amount, t.note].map(q).join(','));
+          O.downloadFile(`orbit-money-${U.today()}.csv`, ['date,kind,category,amount,note', ...rows].join('\n'), 'text/csv');
+          O.toast(`${U.plural(rows.length, 'entry', 'entries')} exported.`);
+          return;
+        }
         if (e.target.closest('[data-sub-new]')) { O.subDialog(); return; }
         const sb = e.target.closest('[data-sub]'); if (sb) { O.subDialog(sb.dataset.sub); return; }
         const tx = e.target.closest('[data-tx]'); if (tx) { O.txDialog(tx.dataset.tx); return; }

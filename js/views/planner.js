@@ -8,23 +8,41 @@
   const SNAP = 15;
   const mem = { date: null, on: null };
 
-  O.blockDialog = ({ id = null, date, start = 540, end = 600, kind = 'work', title = '' } = {}) => {
+  /* a block can repeat every week on chosen days, like a class timetable; on = the day it was opened from */
+  O.blockDialog = ({ id = null, date, start = 540, end = 600, kind = 'work', title = '', on = null } = {}) => {
     const b = id ? O.store.state.blocks.find((x) => x.id === id) : { date, start, end, kind, title };
-    let k = b.kind;
+    const day = on || b.date;
+    let k = b.kind, weekly = !!(b.days && b.days.length);
+    const order = [1, 2, 3, 4, 5, 6, 0];
     const body = `
-      <div class="field"><label for="bt">What</label><input id="bt" class="input" value="${esc(b.title)}" placeholder="e.g. Deep work: thesis" maxlength="80" autocomplete="off"></div>
+      <div class="field"><label for="bt">What</label><input id="bt" class="input" value="${esc(b.title)}" placeholder="e.g. Lecture: DBMS, or Deep work: thesis" maxlength="80" autocomplete="off"></div>
       <div class="field"><span class="label" id="bkl">Kind</span><div class="kindpick" role="group" aria-labelledby="bkl">${Object.entries(D.KINDS).map(([kk, v]) => `<button type="button" data-kind="${kk}" aria-pressed="${kk === k}">${v}</button>`).join('')}</div></div>
       <div class="row3">
-        <div class="field"><label for="bd">Day</label><input id="bd" type="date" class="input" value="${b.date}"></div>
+        <div class="field"><label for="bd">${weekly ? 'Starts' : 'Day'}</label><input id="bd" type="date" class="input" value="${b.date}"></div>
         <div class="field"><label for="bs">From</label><input id="bs" type="time" class="input" step="900" value="${U.hm(b.start)}"></div>
         <div class="field"><label for="be">To</label><input id="be" type="time" class="input" step="900" value="${U.hm(b.end % 1440)}"></div>
+      </div>
+      <div class="field"><span class="label" id="brl">Repeats</span>
+        <div class="seg" role="group" aria-labelledby="brl"><button type="button" data-rep="once" aria-pressed="${!weekly}">Just this day</button><button type="button" data-rep="weekly" aria-pressed="${weekly}">Every week</button></div>
+        <div class="daypick" id="bdays" ${weekly ? '' : 'hidden'}>${order.map((d) => `<label><input type="checkbox" value="${d}" ${(weekly ? b.days : [U.dow(b.date)]).includes(d) ? 'checked' : ''}><span>${U.weekdayShort(d)}</span></label>`).join('')}</div>
+        <span class="hint" id="bhint">${weekly ? 'Changes apply to every week.' : 'For classes and routines, choose Every week.'}</span>
       </div>`;
     const actions = [{ label: 'Cancel' }, { label: id ? 'Save' : 'Add block', primary: true, onClick: () => save() }];
-    if (id) actions.unshift({ label: 'Delete', danger: true, left: true, onClick: () => { const i = O.store.state.blocks.findIndex((x) => x.id === id), old = O.store.state.blocks[i]; O.store.update((s) => { s.blocks.splice(i, 1); }); O.toast(`Removed “${old.title}”`, { action: 'Undo', onAction: () => O.store.update((s) => { s.blocks.splice(i, 0, old); }) }); } });
-    const dlg = O.dialog({ title: id ? 'Edit block' : 'New block', body, actions });
+    const remove = (all) => {
+      const s0 = O.store.state, i = s0.blocks.findIndex((x) => x.id === id), old = JSON.parse(JSON.stringify(s0.blocks[i]));
+      O.store.update((st) => { if (all) st.blocks.splice(i, 1); else { const x = st.blocks[i]; x.skip = [...(x.skip || []), day]; } });
+      O.toast(all ? `Removed “${old.title}”${weekly ? ' from every week' : ''}` : `Skipped “${old.title}” on ${U.relDayInline(day)}`, { action: 'Undo', onAction: () => O.store.update((st) => { const j = st.blocks.findIndex((x) => x.id === id); if (j >= 0) st.blocks[j] = old; else st.blocks.splice(i, 0, old); }) });
+    };
+    if (id && weekly) { actions.unshift({ label: 'Delete every week', danger: true, left: true, onClick: () => remove(true) }); actions.splice(1, 0, { label: 'Skip this day', onClick: () => remove(false) }); }
+    else if (id) actions.unshift({ label: 'Delete', danger: true, left: true, onClick: () => remove(true) });
+    const dlg = O.dialog({ title: id ? (weekly ? 'Edit weekly block' : 'Edit block') : 'New block', body, actions, cls: 'wide' });
     const bd = dlg.body;
-    bd.addEventListener('click', (e) => { const kb = e.target.closest('[data-kind]'); if (kb) { k = kb.dataset.kind; bd.querySelectorAll('[data-kind]').forEach((x) => x.setAttribute('aria-pressed', x === kb)); } });
-    bd.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.tagName === 'INPUT') { e.preventDefault(); dlg.el.querySelector('.modal-foot .primary').click(); } });
+    bd.addEventListener('click', (e) => {
+      const kb = e.target.closest('[data-kind]'); if (kb) { k = kb.dataset.kind; bd.querySelectorAll('[data-kind]').forEach((x) => x.setAttribute('aria-pressed', x === kb)); }
+      const rp = e.target.closest('[data-rep]');
+      if (rp) { weekly = rp.dataset.rep === 'weekly'; bd.querySelectorAll('[data-rep]').forEach((x) => x.setAttribute('aria-pressed', x === rp)); bd.querySelector('#bdays').hidden = !weekly; bd.querySelector('label[for="bd"]').textContent = weekly ? 'Starts' : 'Day'; bd.querySelector('#bhint').textContent = weekly ? 'It shows on these days every week from the start date.' : 'For classes and routines, choose Every week.'; }
+    });
+    bd.addEventListener('keydown', (e) => { if (e.key === 'Enter' && e.target.tagName === 'INPUT' && e.target.type !== 'checkbox') { e.preventDefault(); dlg.el.querySelector('.modal-foot .primary').click(); } });
     const inp = bd.querySelector('#bt'); inp.focus();
     function save() {
       const title = inp.value.trim() || D.KINDS[k];
@@ -32,11 +50,15 @@
       if (s == null || e0 == null) return false;
       const e = e0 <= s ? (e0 === 0 ? 1440 : s + 30) : e0;
       const date = bd.querySelector('#bd').value || b.date;
+      const days = weekly ? U.$$('#bdays input:checked', bd).map((x) => +x.value) : null;
+      if (weekly && !days.length) { bd.querySelector('#bdays input').focus(); return false; }
       O.store.update((st) => {
-        if (id) Object.assign(st.blocks.find((x) => x.id === id), { title, kind: k, start: s, end: e, date });
-        else st.blocks.push({ id: U.uid(), date, start: s, end: e, title, kind: k });
+        const f = { title, kind: k, start: s, end: e, date, days: days || undefined };
+        if (id) { const x = st.blocks.find((y) => y.id === id); Object.assign(x, f); if (!weekly) { delete x.days; delete x.skip; } }
+        else st.blocks.push({ id: U.uid(), ...f });
       });
-      if (date !== mem.date) { mem.date = date; }
+      if (!weekly && date !== mem.date) { mem.date = date; }
+      if (weekly && !id) O.toast(`“${title}” added every ${days.slice().sort((a, b) => ((a + 6) % 7) - ((b + 6) % 7)).map(U.weekdayLong).join(', ')}.`);
     }
     return dlg;
   };
@@ -107,7 +129,7 @@
           const short = h < 40;
           return `<div class="pblock ${short ? 'short' : ''}" data-block="${b.id}" data-kind="${b.kind}" tabindex="0" role="button" aria-label="${esc(b.title)}, ${U.hm(b.start)} to ${U.hm(b.end % 1440)}. Press Enter to edit."
             style="top:${top}px;height:${h}px;left:calc(6px + ${col} * (100% - 78px) / ${n});right:auto;width:calc((100% - 78px) / ${n} - 4px)">
-            <div class="bt">${esc(b.title)}</div><div class="bs">${U.hm(b.start)}–${U.hm(b.end % 1440)}</div><div class="grip" data-grip></div></div>`;
+            <div class="bt">${b.days && b.days.length ? O.icon('repeat', 11) + ' ' : ''}${esc(b.title)}</div><div class="bs">${U.hm(b.start)}–${U.hm(b.end % 1440)}</div><div class="grip" data-grip></div></div>`;
         }).join('');
         const sess = D.sessionsOn(k).map((s) => { const m0 = U.minsOfTs(s.start); return `<div class="fsess" style="top:${y(m0)}px;height:${Math.max(3, y(m0 + s.minutes) - y(m0))}px" title="Focus ${U.timeOf(s.start)}–${U.timeOf(s.end)}, ${s.minutes} min"></div>`; }).join('');
         const tasks = O.store.state.tasks.filter((t) => t.due === k && t.time).map((t) => `<button type="button" class="ptask ${t.done ? 'done' : ''}" style="top:${y(U.mins(t.time))}px;border:0;background:none;padding:0" data-act="open-task" data-id="${t.id}" title="${t.time} ${esc(t.title)}" aria-label="Task at ${t.time}: ${esc(t.title)}"><i></i></button>`).join('');
@@ -121,7 +143,7 @@
         $('tcount').textContent = ts.length;
         $('dtasks').innerHTML = ts.length ? ts.slice(0, 8).map((t) => O.taskRow(t, { today })).join('') : `<div class="empty">No tasks due ${esc(U.relDayInline(k))}.</div>`;
         const bl = D.blocksOn(k), planned = bl.reduce((a, b) => a + (b.end - b.start), 0);
-        const prev = D.blocksOn(U.addDays(k, -1));
+        const prev = D.blocksOn(U.addDays(k, -1)).filter((b) => !(b.days && b.days.length));
         const byKind = Object.entries(D.KINDS).map(([kk, v]) => ({ v, m: bl.filter((b) => b.kind === kk).reduce((a, b) => a + (b.end - b.start), 0) })).filter((x) => x.m);
         const st = O.store.state.settings;
         const free = (st.dayEnd - st.dayStart) * 60 - planned;
@@ -157,7 +179,9 @@
       };
 
       /* pointer work on the day column */
+      let lastPointer = 'mouse';
       root.addEventListener('pointerdown', (e) => {
+        lastPointer = e.pointerType || 'mouse';
         const col = e.target.closest('#col'); if (!col || e.button !== 0) return;
         const blockEl = e.target.closest('.pblock');
         if (e.target.closest('.ptask') || e.target.closest('.fsess')) return;
@@ -209,26 +233,27 @@
           return;
         }
         d.el.classList.remove('dragging');
-        if (!d.moved) { O.blockDialog({ id: d.b.id }); return; }
+        if (!d.moved) { O.blockDialog({ id: d.b.id, on: mem.date }); return; }
         O.store.update(() => { d.b.start = d.ns; d.b.end = d.ne; });
+        if (d.b.days && d.b.days.length) O.toast(`Moved “${d.b.title}” to ${U.hm(d.ns)} every week.`);
       };
       root.addEventListener('pointerup', end);
       root.addEventListener('pointercancel', () => { if (drag) { if (drag.kind === 'create') drag.el.remove(); drag = null; board(); } });
       root.addEventListener('click', (e) => {
         const col = e.target.closest('#col');
-        if (col && e.pointerType === 'touch' && !e.target.closest('.pblock, .ptask')) { newBlock(Math.floor(minsAt(e.clientY) / 30) * 30); return; }
+        if (col && (e.pointerType || lastPointer) === 'touch' && !e.target.closest('.pblock, .ptask')) { newBlock(Math.floor(minsAt(e.clientY) / 30) * 30); return; }
         const nav = e.target.closest('[data-nav]');
         if (nav) { const n = +nav.dataset.nav; mem.date = n === 0 ? U.today() : U.addDays(mem.date, n); history.replaceState(null, '', '#/planner?date=' + mem.date); all(); return; }
         if (e.target.closest('[data-newblock]')) { newBlock(); return; }
         if (e.target.closest('[data-copy]')) {
-          const prev = D.blocksOn(U.addDays(mem.date, -1));
+          const prev = D.blocksOn(U.addDays(mem.date, -1)).filter((b) => !(b.days && b.days.length));
           O.store.update((s) => { prev.forEach((b) => s.blocks.push({ ...b, id: U.uid(), date: mem.date, sample: undefined })); });
           O.toast(`Copied ${U.plural(prev.length, 'block')}.`);
           return;
         }
         O.handleCommon(e);
       });
-      root.addEventListener('keydown', (e) => { const b = e.target.closest('.pblock'); if (b && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); O.blockDialog({ id: b.dataset.block }); } });
+      root.addEventListener('keydown', (e) => { const b = e.target.closest('.pblock'); if (b && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); O.blockDialog({ id: b.dataset.block, on: mem.date }); } });
       return { refresh: all, tick: () => { if (!drag) board(); head(); } };
     },
   };

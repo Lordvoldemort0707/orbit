@@ -38,6 +38,7 @@
                 <div class="field"><span class="label" id="hdl">Headings</span><div class="seg" role="group" aria-labelledby="hdl">${[['serif', 'Editorial'], ['sans', 'Modern']].map(([k, v]) => `<button type="button" data-k="hd-${k}" data-head="${k}" aria-pressed="${(st.headings || 'serif') === k}" class="${k === 'serif' ? 'serif-btn' : ''}">${v}</button>`).join('')}</div></div>
                 <div class="field"><span class="label" id="mol">Motion</span><div class="seg" role="group" aria-labelledby="mol">${[['full', 'Full'], ['reduced', 'Reduced']].map(([k, v]) => `<button type="button" data-k="mo-${k}" data-motion-set="${k}" aria-pressed="${(st.motion || 'full') === k}">${v}</button>`).join('')}</div></div>
               </div>
+              <div><button type="button" class="btn" data-customize>${O.icon('layout', 15)}Customize the Today page</button></div>
               ${sw('celebrate', 'Celebrations', 'Confetti for level-ups, badges, finished goals and a full set of habits.')}
               <div class="field"><label for="dxp">Daily XP goal</label><select id="dxp" class="input" data-num="dailyXp" style="max-width:240px">${[60, 90, 120, 150, 200, 300].map((n) => `<option value="${n}" ${n === (st.dailyXp || 120) ? 'selected' : ''}>${n} XP a day${n === 120 ? ' (default)' : ''}</option>`).join('')}</select><span class="hint">The ring on Today fills toward it. About five tasks and a focus session.</span></div>
             </div></section>
@@ -62,6 +63,9 @@
               ${sw('reminders', 'Remind me when a timed task is due', 'A chime and a message at the task’s time.')}
               <label class="switch-row"><span><b>System notifications</b><span>${perm === 'denied' ? 'Blocked in your browser’s site settings. Allow notifications for this site, then switch this on.' : perm === 'unsupported' ? 'This browser can’t show notifications.' : 'Show reminders and timer alerts even when Orbit is in the background.'}</span></span><input type="checkbox" class="switch" id="notify" ${st.notify && perm === 'granted' ? 'checked' : ''} ${perm === 'denied' || perm === 'unsupported' ? 'disabled' : ''}></label>
             </div></section>
+
+          <section class="set-row"><div class="set-label"><h2>Study</h2><p>How many brand-new flashcards come up each day. Reviews of cards you’ve seen are never held back.</p></div>
+            <div class="set-panel"><div class="field"><label for="nc">New cards a day</label><select id="nc" class="input" data-num="newCards" style="max-width:240px">${[5, 10, 20, 30, 50, 100].map((n) => `<option value="${n}" ${n === (st.newCards || 20) ? 'selected' : ''}>${n} new cards${n === 20 ? ' (default)' : ''}</option>`).join('')}</select></div></div></section>
 
           <section class="set-row"><div class="set-label"><h2>Your day</h2><p>The hours the planner and the day strip on Today show.</p></div>
             <div class="set-panel"><div class="row3">
@@ -136,7 +140,7 @@
         const t = e.target;
         if (t.dataset.set) { setS((s) => { s.settings[t.dataset.set] = t.checked; }); return; }
         if (t.dataset.num) {
-          const key = t.dataset.num, lim = { focusMin: [1, 180], shortMin: [1, 60], longMin: [1, 90], longEvery: [2, 6], dayStart: [0, 12], dayEnd: [14, 24], weekStart: [0, 1], dailyXp: [30, 1000] }[key];
+          const key = t.dataset.num, lim = { focusMin: [1, 180], shortMin: [1, 60], longMin: [1, 90], longEvery: [2, 6], dayStart: [0, 12], dayEnd: [14, 24], weekStart: [0, 1], dailyXp: [30, 1000], newCards: [1, 500] }[key];
           const v = U.clamp(parseInt(t.value, 10) || lim[0], lim[0], lim[1]);
           setS((s) => { s.settings[key] = v; if (O.timer.status() === 'idle') { s.timer.left = null; } });
           O.timer.emit();
@@ -164,6 +168,7 @@
         const mo = e.target.closest('[data-motion-set]');
         if (mo) { setS((s) => { s.settings.motion = mo.dataset.motionSet; }); O.applyTheme(); return; }
         if (e.target.closest('[data-budgets]')) { O.budgetDialog(); return; }
+        if (e.target.closest('[data-customize]')) { O.customizeToday(); return; }
         const lc = e.target.closest('[data-loc]');
         if (lc) { const r = JSON.parse(lc.dataset.loc); setS((s) => { s.settings.location = r; }); O.toast(`Weather set to ${r.name}.`); O.weather.get({ force: true }); return; }
         if (e.target.closest('[data-loc-clear]')) { setS((s) => { s.settings.location = null; }); return; }
