@@ -1,0 +1,9 @@
+{
+  "name": "orbit",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Orbit: a personal life dashboard. Tasks, habits, focus timer, planner, notes and journal, offline and on your device.",
+  "scripts": {
+    "start": "node server.js"
+  }
+}

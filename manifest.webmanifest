@@ -1,0 +1,25 @@
+{
+  "name": "Orbit — your day in one place",
+  "short_name": "Orbit",
+  "description": "Tasks, habits, a focus timer, a day planner, notes and a journal. Everything stays on your device.",
+  "id": "./",
+  "start_url": "./#/today",
+  "scope": "./",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone"],
+  "background_color": "#f6f6f3",
+  "theme_color": "#f6f6f3",
+  "orientation": "any",
+  "categories": ["productivity", "lifestyle"],
+  "icons": [
+    { "src": "icons/icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "icons/maskable-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "New task", "url": "./#/tasks", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Start focus", "url": "./#/focus", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] },
+    { "name": "Today's journal", "url": "./#/journal", "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }] }
+  ]
+}
