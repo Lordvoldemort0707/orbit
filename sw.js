@@ -1,6 +1,6 @@
 /* Orbit service worker: the app shell is cached on install, so Orbit opens offline.
    Bump VERSION when files change; the page then offers a reload. */
-const VERSION = 'orbit-v3';
+const VERSION = 'orbit-v3.1';
 const SHELL = [
   './', 'index.html', 'manifest.webmanifest', 'css/app.css',
   'js/charts.js', 'js/core.js', 'js/ui.js', 'js/timer.js', 'js/life.js', 'js/fx.js', 'js/ambient.js', 'js/weather.js', 'js/sample.js', 'js/app.js',
